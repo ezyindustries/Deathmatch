@@ -121,7 +121,7 @@ screenGui.Parent = playerGui
 
 -- ----------------------------------------------------------------------------
 -- Visual constants. Desktop: 96px arrow + 140px halo per DESIGN_SYSTEM.
--- Mobile (vw < 700) shrinks to 56px arrow + 84px halo so the indicator stays
+-- Mobile (vw < 900) shrinks to 56px arrow + 84px halo so the indicator stays
 -- peripheral on a 374h viewport without crowding the crosshair.
 -- ----------------------------------------------------------------------------
 local ARROW_SIZE_DESKTOP = 96
@@ -140,7 +140,7 @@ local ARROW_ZINDEX = 2
 local function isMobileViewport(): boolean
     local cam = Workspace.CurrentCamera
     local vw = cam and cam.ViewportSize.X or 1920
-    return vw < 700
+    return vw < 900
 end
 
 type IndicatorEntry = {

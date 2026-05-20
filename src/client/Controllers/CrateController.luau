@@ -41,10 +41,10 @@ gachaButton.Parent = screenGui
 local function refreshGachaSize()
 	local cam = workspace.CurrentCamera
 	local vw = cam and cam.ViewportSize.X or 1920
-	if vw < 700 then
+	if vw < 900 then
 		gachaButton.Size = UDim2.new(0, 150, 0, 36)
 		gachaButton.TextSize = 14
-	elseif vw < 1100 then
+	elseif vw < 1300 then
 		gachaButton.Size = UDim2.new(0, 190, 0, 48)
 		gachaButton.TextSize = 18
 	else

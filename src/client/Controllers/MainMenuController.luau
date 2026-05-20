@@ -28,8 +28,8 @@ local function getViewportW(): number
 	local cam = Workspace.CurrentCamera
 	return (cam and cam.ViewportSize.X) or 1920
 end
-local function isMobileVP(): boolean return getViewportW() < 700 end
-local function isTabletVP(): boolean return getViewportW() < 1100 end
+local function isMobileVP(): boolean return getViewportW() < 900 end
+local function isTabletVP(): boolean return getViewportW() < 1300 end
 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "MainMenu"
@@ -399,11 +399,11 @@ local modeCards: { TextButton } = {}
 local modeStrokes: { UIStroke } = {}
 
 -- Mode card geometry is responsive (recomputed in applyResponsiveLayout).
--- Mobile (vw<700): 140x80 — fits two cards side-by-side on iPhone 7 landscape
+-- Mobile (vw<900): 140x80 — fits two cards side-by-side on iPhone 7 landscape
 -- (666x374) with generous breathing room above (title) + below (PLAY).
 -- Shrunk from 180x100 after mobile audit: cards no longer dominate ~70% of the
 -- vertical real estate, leaving room for PLAY without overlapping the side
--- button columns. Tablet (vw<1100): 200x110. Desktop: 260x160.
+-- button columns. Tablet (vw<1300): 200x110. Desktop: 260x160.
 local function getCardDims(): (number, number, number)
 	local w, h, gap
 	if isMobileVP() then
@@ -612,7 +612,7 @@ type SideButton = { label: string, icon: string, accent: Color3, signal: string 
 -- Side-button sizing is viewport-based (Studio Device Emulator-friendly).
 -- Detection switched from TouchEnabled to ViewportSize.X because the emulator
 -- doesn't always toggle TouchEnabled when simulating mobile viewports.
---   mobile (vw<700): 50x50 icon-only — shrunk from 70x56 after mobile audit;
+--   mobile (vw<900): 50x50 icon-only — shrunk from 70x56 after mobile audit;
 --     iPhone 7 landscape (666x374) needs side buttons to occupy <55% of the
 --     vertical column so PLAY button + mode cards fit without overlap. Glyph
 --     size dropped to 22 (from 28) to feel proportional to the smaller chip.

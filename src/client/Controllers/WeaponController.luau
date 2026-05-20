@@ -512,7 +512,7 @@ feedbackLabel.Parent = screenGui
 -- Round 7 (mobile shrink): chips 100->80, panel height 48->32. Keeps the
 -- hotbar discreet at iPhone 7 instead of dominating the bottom row.
 local _slotCam = workspace.CurrentCamera
-local SLOT_IS_COMPACT = UserInputService.TouchEnabled and _slotCam and _slotCam.ViewportSize.X < 700
+local SLOT_IS_COMPACT = UserInputService.TouchEnabled and _slotCam and _slotCam.ViewportSize.X < 900
 -- Chip dimensions and panel layout vary by viewport mode.
 local CHIP_W = SLOT_IS_COMPACT and 80 or 130
 local CHIP_PAD_X = SLOT_IS_COMPACT and 6 or 8 -- left padding for first chip
@@ -637,7 +637,7 @@ ammoPanel.Parent = screenGui
 -- gap, vertically centered with FIRE.
 do
 	local cam = workspace.CurrentCamera
-	local isCompact = UserInputService.TouchEnabled and cam and cam.ViewportSize.X < 700
+	local isCompact = UserInputService.TouchEnabled and cam and cam.ViewportSize.X < 900
 	if isCompact then
 		ammoPanel.Size = UDim2.new(0, 100, 0, 32)
 		ammoPanel.AnchorPoint = Vector2.new(1, 0.5)
@@ -653,7 +653,7 @@ ammoCorner.Parent = ammoPanel
 -- panel cleanly without overlapping the "/ N" reserve text below.
 local ammoIsCompact = UserInputService.TouchEnabled
 	and workspace.CurrentCamera
-	and workspace.CurrentCamera.ViewportSize.X < 700
+	and workspace.CurrentCamera.ViewportSize.X < 900
 local ammoNumber = Instance.new("TextLabel")
 ammoNumber.Size = UDim2.new(0.55, 0, 1, 0)
 ammoNumber.Position = UDim2.new(0, 0, 0, 0)
@@ -1604,7 +1604,7 @@ if isTouch then
 	-- Scoreboard mobile total height: 4*22+3*2 = 94, plus topInset (~36) +
 	-- top offset Space.l (16) ≈ 146. Add Space.m (12) gap → top = 158.
 	local _btnColCam = workspace.CurrentCamera
-	local _isMobile = _btnColCam and _btnColCam.ViewportSize.X < 700
+	local _isMobile = _btnColCam and _btnColCam.ViewportSize.X < 900
 	local COL_BTN_H = _isMobile and 38 or 44
 	local COL_BTN_GAP = _isMobile and 7 or 8
 	local COL_W = _isMobile and 38 or 44

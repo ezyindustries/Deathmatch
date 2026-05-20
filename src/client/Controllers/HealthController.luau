@@ -121,9 +121,9 @@ local function refreshContainerLayout()
 	local cam = Workspace.CurrentCamera
 	local vw = cam and cam.ViewportSize.X or 1920
 	local w, h, matchHudH
-	if vw < 700 then
+	if vw < 900 then
 		w, h, matchHudH = 150, 28, 22
-	elseif vw < 1100 then
+	elseif vw < 1300 then
 		w, h, matchHudH = 220, 48, 32
 	else
 		w, h, matchHudH = 260, 56, 32
@@ -231,7 +231,7 @@ end
 local function refreshInner()
 	local cam = Workspace.CurrentCamera
 	local vw = cam and cam.ViewportSize.X or 1920
-	applyInnerSizing(vw < 700)
+	applyInnerSizing(vw < 900)
 end
 refreshInner()
 if Workspace.CurrentCamera then

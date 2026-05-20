@@ -21,8 +21,8 @@ local function getViewportW(): number
 	local cam = Workspace.CurrentCamera
 	return (cam and cam.ViewportSize.X) or 1920
 end
-local function isMobileVP(): boolean return getViewportW() < 700 end
-local function isTabletVP(): boolean return getViewportW() < 1100 end
+local function isMobileVP(): boolean return getViewportW() < 900 end
+local function isTabletVP(): boolean return getViewportW() < 1300 end
 
 local movementLockSignal = ClientSignals.Get("MovementLock")
 
@@ -360,7 +360,7 @@ local function buildCard(map: MapRegistry.MapInfo, index: number)
 end
 
 -- ============= responsive layout =============
--- Recomputed at startup and whenever viewport changes. Mobile (vw<700) packs
+-- Recomputed at startup and whenever viewport changes. Mobile (vw<900) packs
 -- the entire voting screen into a 666x374 budget: header at y=8 (h2=28 instead
 -- of 42), 3 cards at 180x210 centered, timer 110x60 at bottom-center.
 local function applyVotingResponsive()

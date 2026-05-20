@@ -36,7 +36,7 @@ screenGui.Parent = playerGui
 local function isMobileViewport(): boolean
 	local cam = Workspace.CurrentCamera
 	local vw = cam and cam.ViewportSize.X or 1920
-	return vw < 700
+	return vw < 900
 end
 
 local topPanel = Instance.new("Frame")

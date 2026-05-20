@@ -62,9 +62,8 @@ local overlayScale = Instance.new("UIScale")
 -- Parent is set later, AFTER `panel` is created, so the panel variable exists.
 local function refreshOverlayScale()
 	local vw = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize.X or 1920
-	if vw < 700 then overlayScale.Scale = 0.65
-	elseif vw < 900 then overlayScale.Scale = 0.75
-	elseif vw < 1200 then overlayScale.Scale = 0.85
+	if vw < 900 then overlayScale.Scale = 0.55
+	elseif vw < 1300 then overlayScale.Scale = 0.8
 	else overlayScale.Scale = 1.0 end
 end
 refreshOverlayScale()

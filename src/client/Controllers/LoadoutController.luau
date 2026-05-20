@@ -75,9 +75,8 @@ local panelScale = Instance.new("UIScale")
 panelScale.Parent = panel
 local function refreshPanelScale()
 	local vw = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize.X or 1920
-	if vw < 700 then panelScale.Scale = 0.55
-	elseif vw < 900 then panelScale.Scale = 0.72
-	elseif vw < 1200 then panelScale.Scale = 0.85
+	if vw < 900 then panelScale.Scale = 0.55
+	elseif vw < 1300 then panelScale.Scale = 0.8
 	else panelScale.Scale = 1.0 end
 end
 refreshPanelScale()

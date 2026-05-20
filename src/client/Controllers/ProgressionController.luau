@@ -31,8 +31,8 @@ screenGui.Parent = playerGui
 -- Roblox chat/audio icons on mobile.
 --
 -- Responsive sizing matches the HP container:
---   mobile  (vw <  700)  160x36
---   tablet  (vw < 1100)  200x40
+--   mobile  (vw <  900)  160x36
+--   tablet  (vw < 1300)  200x40
 --   desktop             240x44
 -- And the Y offset stacks below the HP container plus an 8px gap.
 local rankBadge = Instance.new("Frame")
@@ -48,9 +48,9 @@ local function refreshRankBadgeLayout()
 	local vw = cam and cam.ViewportSize.X or 1920
 	-- HP container heights (mirror HealthController.refreshContainerLayout)
 	local hpHeight, badgeW, badgeH
-	if vw < 700 then
+	if vw < 900 then
 		hpHeight, badgeW, badgeH = 40, 160, 36
-	elseif vw < 1100 then
+	elseif vw < 1300 then
 		hpHeight, badgeW, badgeH = 48, 200, 40
 	else
 		hpHeight, badgeW, badgeH = 56, 240, 44
@@ -99,9 +99,9 @@ rankLabel.Parent = rankBadge
 local function refreshRankLabelSize()
 	local cam = Workspace.CurrentCamera
 	local vw = cam and cam.ViewportSize.X or 1920
-	if vw < 700 then
+	if vw < 900 then
 		rankLabel.TextSize = 12
-	elseif vw < 1100 then
+	elseif vw < 1300 then
 		rankLabel.TextSize = 13
 	else
 		rankLabel.TextSize = 14

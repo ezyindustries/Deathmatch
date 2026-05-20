@@ -43,7 +43,7 @@ local MINI_ROW_GAP_MOBILE = 2
 local function isMobileViewport(): boolean
 	local cam = Workspace.CurrentCamera
 	local vw = cam and cam.ViewportSize.X or 1920
-	return vw < 700
+	return vw < 900
 end
 
 -- Compute total mini-scoreboard height (rows + gaps). Used by KillFeed to

@@ -186,7 +186,7 @@ particleLayer.Parent = screenGui
 
 -- Recomputes banner width + responsive font sizes vs viewport. Called on init
 -- and on ViewportSize changes so phones in landscape ↔ portrait stay correct.
--- Mobile (vw < 700) drops banner height + title font so the banner doesn't
+-- Mobile (vw < 900) drops banner height + title font so the banner doesn't
 -- dominate iPhone 7's 374h viewport.
 local function refreshBannerWidth()
 	local cam = Workspace.CurrentCamera

@@ -77,7 +77,7 @@ escHint.Text = "ESC"
 -- robust for Studio Device Emulator which leaves MouseEnabled=true.
 do
 	local cam = workspace.CurrentCamera
-	escHint.Visible = not (UserInputService.TouchEnabled and cam and cam.ViewportSize.X < 700)
+	escHint.Visible = not (UserInputService.TouchEnabled and cam and cam.ViewportSize.X < 900)
 end
 escHint.Parent = screenGui
 

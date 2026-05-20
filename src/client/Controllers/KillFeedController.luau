@@ -59,7 +59,7 @@ screenGui.Parent = playerGui
 local function isMobileDevice(): boolean
 	local cam = Workspace.CurrentCamera
 	local vw = cam and cam.ViewportSize.X or 1920
-	return vw < 700
+	return vw < 900
 end
 
 local GuiService = game:GetService("GuiService")
@@ -90,7 +90,7 @@ end
 local function refreshContainerSize()
 	local cam = Workspace.CurrentCamera
 	local vw = cam and cam.ViewportSize.X or 1920
-	local mobileViewport = vw < 700
+	local mobileViewport = vw < 900
 	screenGui.Enabled = not mobileViewport
 	if mobileViewport then
 		return -- nothing more to compute when hidden

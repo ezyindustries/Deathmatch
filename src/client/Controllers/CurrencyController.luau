@@ -15,7 +15,7 @@ local function getViewportW(): number
 	local cam = Workspace.CurrentCamera
 	return (cam and cam.ViewportSize.X) or 1920
 end
-local function isMobileVP(): boolean return getViewportW() < 700 end
+local function isMobileVP(): boolean return getViewportW() < 900 end
 
 local CurrencyController = {}
 
