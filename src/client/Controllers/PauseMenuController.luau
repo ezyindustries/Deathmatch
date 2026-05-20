@@ -73,7 +73,12 @@ escHint.Font = Enum.Font.GothamBold
 escHint.TextSize = 9
 escHint.TextColor3 = TEXT_DIM
 escHint.Text = "ESC"
-escHint.Visible = not (UserInputService.TouchEnabled and not UserInputService.MouseEnabled)
+-- Hide ESC hint on narrow mobile viewports (no keyboard) — viewport check is
+-- robust for Studio Device Emulator which leaves MouseEnabled=true.
+do
+	local cam = workspace.CurrentCamera
+	escHint.Visible = not (UserInputService.TouchEnabled and cam and cam.ViewportSize.X < 700)
+end
 escHint.Parent = screenGui
 
 menuButton.MouseEnter:Connect(function()

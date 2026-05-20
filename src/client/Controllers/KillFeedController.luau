@@ -14,7 +14,8 @@ local UITheme = require(Shared.Modules.UITheme)
 
 local KillFeedController = {}
 
-local MAX_ENTRIES = 3 -- shrunk from 5 on mobile-tight screens
+local MAX_ENTRIES_DESKTOP = 5
+local MAX_ENTRIES_MOBILE = 2 -- short-vertical viewports can't fit more
 local ENTRY_LIFETIME = 4
 local ENTRY_HEIGHT = 36
 local ENTRY_MAX_W_DESKTOP = 420
@@ -37,8 +38,14 @@ screenGui.IgnoreGuiInset = true
 screenGui.DisplayOrder = 80
 screenGui.Parent = playerGui
 
+-- Mobile detection: use viewport WIDTH not Touch/Mouse combo. Studio's
+-- Device Emulator leaves MouseEnabled=true while TouchEnabled is also true,
+-- which broke the "touch + !mouse" check. Viewport-width detection is robust
+-- for Studio emulator AND real mobile (which all have narrow viewports).
 local function isMobileDevice(): boolean
-	return UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+	local cam = Workspace.CurrentCamera
+	local vw = cam and cam.ViewportSize.X or 1920
+	return vw < 700
 end
 
 local GuiService = game:GetService("GuiService")
@@ -60,7 +67,9 @@ local function refreshContainerSize()
 	local vw = cam and cam.ViewportSize.X or 1920
 	local mobileViewport = vw < 700
 	local w = mobileViewport and (ENTRY_MAX_W_MOBILE + 8) or (ENTRY_MAX_W_DESKTOP + 8)
-	container.Size = UDim2.new(0, w, 0, 180)
+	local maxEntries = mobileViewport and MAX_ENTRIES_MOBILE or MAX_ENTRIES_DESKTOP
+	local h = maxEntries * ENTRY_HEIGHT + (maxEntries - 1) * UITheme.Space.s
+	container.Size = UDim2.new(0, w, 0, h)
 
 	local rightOffset = UITheme.Space.xl
 	local topOffset = UITheme.Space.x5l + UITheme.Space.x3l -- 96 desktop default
@@ -224,7 +233,8 @@ local function buildEntry(info: any)
 
 	table.insert(entries, 1, entry)
 
-	while #entries > MAX_ENTRIES do
+	local maxEntries = isMobileDevice() and MAX_ENTRIES_MOBILE or MAX_ENTRIES_DESKTOP
+	while #entries > maxEntries do
 		local old = table.remove(entries)
 		if old then
 			old:Destroy()

@@ -592,14 +592,19 @@ ammoPanel.BorderSizePixel = 0
 ammoPanel.Visible = false
 ammoPanel.Parent = screenGui
 
--- Mobile: stack ammo ABOVE FIRE button (right-bottom column). FIRE is 72x72
--- anchored at (1, -88, 1, -130). Ammo sits 8px above FIRE top with same right
--- anchor so the vertical stack reads as one cluster.
+-- Mobile: place ammo to the LEFT of FIRE button (compact horizontal cluster).
+-- Was previously above FIRE which overlapped KillFeed on short viewports.
+-- Detection by viewport width (Studio Device Emulator keeps MouseEnabled=true
+-- so the TouchEnabled+!MouseEnabled idiom is unreliable for it).
 do
-	local _uis = UserInputService
-	local isMobileDevice = _uis.TouchEnabled and not _uis.MouseEnabled
-	if isMobileDevice then
-		ammoPanel.Position = UDim2.new(1, -88, 1, -210)
+	local cam = workspace.CurrentCamera
+	local isCompact = UserInputService.TouchEnabled and cam and cam.ViewportSize.X < 700
+	if isCompact then
+		-- FIRE is 72x72 at (1,-88,1,-130). Place ammo LEFT of FIRE with a 16
+		-- gap: ammo right edge at -88-72-16 = -176 from right.
+		ammoPanel.Size = UDim2.new(0, 100, 0, 32)
+		ammoPanel.AnchorPoint = Vector2.new(1, 0.5)
+		ammoPanel.Position = UDim2.new(1, -176, 1, -166) -- vertically centered with FIRE
 	end
 end
 

@@ -59,7 +59,8 @@ hintLabel.TextColor3 = Color3.fromRGB(180, 220, 255)
 hintLabel.Text = "🖱 CURSOR MODE — Alt to lock back"
 
 -- Persistent top-right hint: "ALT for cursor" — desktop-only (no keyboard ALT on touch).
-local isTouchOnly = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+-- Viewport-width check is robust for Studio Device Emulator (which keeps MouseEnabled=true).
+local isTouchOnly = UserInputService.TouchEnabled and Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize.X < 700
 local persistentHint = Instance.new("Frame")
 persistentHint.Size = UDim2.new(0, 160, 0, 28)
 persistentHint.AnchorPoint = Vector2.new(1, 0)
