@@ -3,6 +3,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local GuiService = game:GetService("GuiService")
+local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared.Modules.Remotes)
@@ -10,6 +11,7 @@ local RankSystem = require(Shared.Modules.RankSystem)
 local BattlePassConfig = require(Shared.Modules.BattlePassConfig)
 local CosmeticRegistry = require(Shared.Modules.CosmeticRegistry)
 local ClientSignals = require(Shared.Modules.ClientSignals)
+local UITheme = require(Shared.Modules.UITheme)
 
 local ProgressionController = {}
 
@@ -23,34 +25,54 @@ screenGui.IgnoreGuiInset = true
 screenGui.DisplayOrder = 150
 screenGui.Parent = playerGui
 
--- Rank badge (below mini scoreboard).
--- ScreenGui.IgnoreGuiInset=true means we sit underneath the Roblox topbar
--- (chat/headphones icons) on mobile unless we manually shift down by the
--- topbar reservation. We keep IgnoreGuiInset on so other GUIs aren't pushed
--- around — only this top-anchored element needs the manual offset.
-local RANK_BADGE_TOP_PAD = 64 -- original Y offset, preserved as the local Y component
+-- Rank badge sits in the TOP-LEFT group directly below the HP container
+-- (HealthController owns the HP slot above). Both share the same X=12 origin
+-- and respect GuiService:GetGuiInset().Y so the group never overlaps the
+-- Roblox chat/audio icons on mobile.
+--
+-- Responsive sizing matches the HP container:
+--   mobile  (vw <  700)  160x36
+--   tablet  (vw < 1100)  200x40
+--   desktop             240x44
+-- And the Y offset stacks below the HP container plus an 8px gap.
 local rankBadge = Instance.new("Frame")
-rankBadge.Size = UDim2.new(0, 260, 0, 36)
-rankBadge.Position = UDim2.new(0, 20, 0, RANK_BADGE_TOP_PAD)
+rankBadge.Size = UDim2.new(0, 160, 0, 36)
+rankBadge.Position = UDim2.new(0, 12, 0, UITheme.Space.l + 40 + UITheme.Space.s)
 rankBadge.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
 rankBadge.BackgroundTransparency = 0.2
 rankBadge.BorderSizePixel = 0
 rankBadge.Parent = screenGui
 
--- Topbar inset compensation (Bug fix: rank chip covered by Roblox topbar on mobile)
-local function refreshRankBadgeTopOffset()
+local function refreshRankBadgeLayout()
+	local cam = Workspace.CurrentCamera
+	local vw = cam and cam.ViewportSize.X or 1920
+	-- HP container heights (mirror HealthController.refreshContainerLayout)
+	local hpHeight, badgeW, badgeH
+	if vw < 700 then
+		hpHeight, badgeW, badgeH = 40, 160, 36
+	elseif vw < 1100 then
+		hpHeight, badgeW, badgeH = 48, 200, 40
+	else
+		hpHeight, badgeW, badgeH = 56, 240, 44
+	end
+	rankBadge.Size = UDim2.new(0, badgeW, 0, badgeH)
 	local topInset = GuiService:GetGuiInset().Y
-	rankBadge.Position = UDim2.new(0, 20, 0, RANK_BADGE_TOP_PAD + topInset)
+	-- HP container top edge = topInset + Space.l; bottom edge = +hpHeight;
+	-- gap of Space.s (8) between HP and rank.
+	rankBadge.Position = UDim2.new(0, 12, 0, topInset + UITheme.Space.l + hpHeight + UITheme.Space.s)
 end
-refreshRankBadgeTopOffset()
-GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(refreshRankBadgeTopOffset)
+refreshRankBadgeLayout()
+GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(refreshRankBadgeLayout)
+if Workspace.CurrentCamera then
+	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshRankBadgeLayout)
+end
 
 local rankCorner = Instance.new("UICorner")
-rankCorner.CornerRadius = UDim.new(0, 10)
+rankCorner.CornerRadius = UDim.new(0, 8)
 rankCorner.Parent = rankBadge
 
 local rankStripe = Instance.new("Frame")
-rankStripe.Size = UDim2.new(0, 6, 1, -10)
+rankStripe.Size = UDim2.new(0, 4, 1, -10)
 rankStripe.Position = UDim2.new(0, 6, 0, 5)
 rankStripe.BackgroundColor3 = Color3.fromRGB(180, 110, 70)
 rankStripe.BorderSizePixel = 0
@@ -61,15 +83,34 @@ stripeCorner.CornerRadius = UDim.new(1, 0)
 stripeCorner.Parent = rankStripe
 
 local rankLabel = Instance.new("TextLabel")
-rankLabel.Size = UDim2.new(1, -28, 1, 0)
-rankLabel.Position = UDim2.new(0, 22, 0, 0)
+rankLabel.Size = UDim2.new(1, -20, 1, 0)
+rankLabel.Position = UDim2.new(0, 16, 0, 0)
 rankLabel.BackgroundTransparency = 1
 rankLabel.Font = Enum.Font.GothamBold
-rankLabel.TextSize = 14
+rankLabel.TextSize = 12 -- compact for mobile; readable but doesn't crowd
 rankLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 rankLabel.TextXAlignment = Enum.TextXAlignment.Left
+rankLabel.TextYAlignment = Enum.TextYAlignment.Center
+rankLabel.TextTruncate = Enum.TextTruncate.AtEnd
 rankLabel.Text = "BRONZE   0 wins"
 rankLabel.Parent = rankBadge
+
+-- Bump text size up on tablet/desktop where width allows
+local function refreshRankLabelSize()
+	local cam = Workspace.CurrentCamera
+	local vw = cam and cam.ViewportSize.X or 1920
+	if vw < 700 then
+		rankLabel.TextSize = 12
+	elseif vw < 1100 then
+		rankLabel.TextSize = 13
+	else
+		rankLabel.TextSize = 14
+	end
+end
+refreshRankLabelSize()
+if Workspace.CurrentCamera then
+	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshRankLabelSize)
+end
 
 -- Battle Pass button (bottom-right)
 local bpButton = Instance.new("TextButton")
