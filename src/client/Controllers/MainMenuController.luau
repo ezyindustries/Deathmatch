@@ -1,0 +1,1018 @@
+--!strict
+-- CS2-style full-screen main menu shown on join.
+-- Layout A: PLAY+mode top-center, Loadout/Cosmetics/Stats left, Shop/BP/Missions right.
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Remotes = require(Shared.Modules.Remotes)
+local ClientSignals = require(Shared.Modules.ClientSignals)
+
+local MainMenuController = {}
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local camera = Workspace.CurrentCamera
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "MainMenu"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.DisplayOrder = 100
+screenGui.Parent = playerGui
+
+-- Armory backdrop — warm steel-gray gradient (weapon collection theme)
+local backdrop = Instance.new("Frame")
+backdrop.Size = UDim2.new(1, 0, 1, 0)
+backdrop.BackgroundColor3 = Color3.fromRGB(38, 32, 26)
+backdrop.BorderSizePixel = 0
+backdrop.Parent = screenGui
+
+local backdropGradient = Instance.new("UIGradient")
+backdropGradient.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(60, 50, 42)),  -- warm top
+	ColorSequenceKeypoint.new(0.5, Color3.fromRGB(32, 28, 24)), -- mid dark
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 18, 16)),   -- darker bottom
+})
+backdropGradient.Rotation = 90
+backdropGradient.Parent = backdrop
+
+-- ============================================================
+-- HERO RADIAL LIGHT — soft warm glow behind the title to give the backdrop
+-- depth instead of flat black. Two stacked frames simulate a radial falloff.
+-- ============================================================
+local heroGlow = Instance.new("Frame")
+heroGlow.AnchorPoint = Vector2.new(0.5, 0)
+heroGlow.Position = UDim2.new(0.5, 0, 0, 0)
+heroGlow.Size = UDim2.new(0, 900, 0, 380)
+heroGlow.BackgroundColor3 = Color3.fromRGB(220, 165, 90)
+heroGlow.BackgroundTransparency = 0.75
+heroGlow.BorderSizePixel = 0
+heroGlow.Parent = backdrop
+local heroGrad = Instance.new("UIGradient")
+heroGrad.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 200, 120)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(80, 50, 30)),
+})
+heroGrad.Transparency = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 0.45),
+	NumberSequenceKeypoint.new(1, 1),
+})
+heroGrad.Rotation = 90
+heroGrad.Parent = heroGlow
+
+-- ============================================================
+-- DIAGONAL ACCENT STRIPES — subtle tactical band across the corners.
+-- Two thin amber strips at top-left and bottom-right give the page motion.
+-- ============================================================
+local function makeAccentStripe(yScale: number, rot: number, color: Color3)
+	local s = Instance.new("Frame")
+	s.AnchorPoint = Vector2.new(0.5, 0.5)
+	s.Position = UDim2.new(0.5, 0, yScale, 0)
+	s.Size = UDim2.new(2.2, 0, 0, 2)
+	s.BackgroundColor3 = color
+	s.BackgroundTransparency = 0.75
+	s.BorderSizePixel = 0
+	s.Rotation = rot
+	s.Parent = backdrop
+end
+makeAccentStripe(0.16, -6, Color3.fromRGB(220, 165, 90))
+makeAccentStripe(0.84,  6, Color3.fromRGB(220, 165, 90))
+makeAccentStripe(0.18,  4, Color3.fromRGB(160, 105, 50))
+makeAccentStripe(0.82, -4, Color3.fromRGB(160, 105, 50))
+
+-- ============================================================
+-- WEAPON SILHOUETTES — detailed procedural gun shapes. Multi-part composition
+-- makes them read as real weapons even at low opacity. All parts share an
+-- amber/sepia palette tied to the armory theme.
+-- ============================================================
+local function silPart(parent: Instance, x: number, y: number, w: number, h: number, tint: Color3, transparency: number?): Frame
+	local p = Instance.new("Frame")
+	p.AnchorPoint = Vector2.new(0.5, 0.5)
+	p.Position = UDim2.new(0.5, x, 0.5, y)
+	p.Size = UDim2.fromOffset(w, h)
+	p.BackgroundColor3 = tint
+	p.BackgroundTransparency = transparency or 0.82
+	p.BorderSizePixel = 0
+	p.Parent = parent
+	return p
+end
+
+-- AK-style rifle silhouette: stock + receiver + magazine + handguard + barrel + muzzle + scope rail
+local function makeRifleSilhouette(parent: Instance, x: number, y: number, scale: number, rot: number)
+	local s = scale
+	local container = Instance.new("Frame")
+	container.AnchorPoint = Vector2.new(0.5, 0.5)
+	container.Position = UDim2.fromScale(x, y)
+	container.Size = UDim2.fromOffset(280 * s, 70 * s)
+	container.BackgroundTransparency = 1
+	container.Rotation = rot
+	container.Parent = parent
+	local body = Color3.fromRGB(115, 95, 70)
+	local wood = Color3.fromRGB(140, 95, 55)
+	local mag  = Color3.fromRGB(95, 75, 55)
+	-- Receiver (main body)
+	silPart(container, 0, 0, 90 * s, 18 * s, body, 0.82)
+	-- Wooden handguard under barrel
+	silPart(container, 50 * s, 4 * s, 50 * s, 14 * s, wood, 0.84)
+	-- Barrel
+	silPart(container, 90 * s, 0, 60 * s, 7 * s, body, 0.82)
+	-- Front sight post
+	silPart(container, 105 * s, -10 * s, 5 * s, 12 * s, body, 0.84)
+	-- Muzzle brake (slotted)
+	silPart(container, 125 * s, 0, 14 * s, 10 * s, body, 0.82)
+	-- Scope rail
+	silPart(container, -10 * s, -14 * s, 60 * s, 6 * s, body, 0.86)
+	-- Scope body (cylinder approximation)
+	silPart(container, -10 * s, -22 * s, 50 * s, 10 * s, body, 0.84)
+	-- Curved magazine (banana mag suggestion via tilted rect)
+	local magPart = silPart(container, -25 * s, 22 * s, 32 * s, 38 * s, mag, 0.82)
+	magPart.Rotation = -10
+	-- Pistol grip
+	silPart(container, -25 * s, 24 * s, 16 * s, 28 * s, wood, 0.82)
+	-- Wooden buttstock
+	silPart(container, -75 * s, 4 * s, 70 * s, 22 * s, wood, 0.82)
+	-- Stock cheek riser
+	silPart(container, -90 * s, -6 * s, 30 * s, 4 * s, wood, 0.84)
+end
+
+-- Pistol silhouette: slide + frame + grip + trigger guard + sights
+local function makePistolSilhouette(parent: Instance, x: number, y: number, scale: number, rot: number)
+	local s = scale
+	local container = Instance.new("Frame")
+	container.AnchorPoint = Vector2.new(0.5, 0.5)
+	container.Position = UDim2.fromScale(x, y)
+	container.Size = UDim2.fromOffset(110 * s, 90 * s)
+	container.BackgroundTransparency = 1
+	container.Rotation = rot
+	container.Parent = parent
+	local steel = Color3.fromRGB(125, 100, 80)
+	local polymer = Color3.fromRGB(100, 80, 65)
+	-- Slide (top)
+	silPart(container, 0, -22 * s, 80 * s, 18 * s, steel, 0.82)
+	-- Rear sight bump
+	silPart(container, 30 * s, -34 * s, 8 * s, 6 * s, steel, 0.84)
+	-- Front sight
+	silPart(container, -30 * s, -34 * s, 4 * s, 6 * s, steel, 0.84)
+	-- Frame (below slide)
+	silPart(container, 0, -8 * s, 70 * s, 8 * s, polymer, 0.82)
+	-- Accessory rail (under frame)
+	silPart(container, -20 * s, -2 * s, 24 * s, 4 * s, steel, 0.86)
+	-- Trigger guard (oval suggested by 2 rects)
+	silPart(container, 8 * s, 4 * s, 18 * s, 16 * s, polymer, 0.86)
+	-- Grip (angled)
+	local grip = silPart(container, 22 * s, 22 * s, 24 * s, 38 * s, polymer, 0.82)
+	grip.Rotation = -8
+	-- Mag baseplate
+	silPart(container, 26 * s, 40 * s, 22 * s, 4 * s, steel, 0.84)
+end
+
+-- Knife silhouette: clip-point blade + crossguard + handle + pommel
+local function makeKnifeSilhouette(parent: Instance, x: number, y: number, scale: number, rot: number)
+	local s = scale
+	local container = Instance.new("Frame")
+	container.AnchorPoint = Vector2.new(0.5, 0.5)
+	container.Position = UDim2.fromScale(x, y)
+	container.Size = UDim2.fromOffset(170 * s, 30 * s)
+	container.BackgroundTransparency = 1
+	container.Rotation = rot
+	container.Parent = parent
+	local steel = Color3.fromRGB(160, 140, 115)
+	local handleColor = Color3.fromRGB(80, 60, 45)
+	-- Blade body
+	silPart(container, -20 * s, 0, 100 * s, 9 * s, steel, 0.82)
+	-- Blade edge highlight
+	silPart(container, -20 * s, 5 * s, 100 * s, 2 * s, Color3.fromRGB(220, 195, 165), 0.84)
+	-- Fuller (blood groove)
+	silPart(container, -20 * s, -1 * s, 80 * s, 2 * s, Color3.fromRGB(110, 95, 75), 0.86)
+	-- Clip-point tip
+	local tip = silPart(container, 35 * s, -1 * s, 20 * s, 7 * s, steel, 0.82)
+	tip.Rotation = -8
+	-- Crossguard
+	silPart(container, -45 * s, 0, 6 * s, 18 * s, Color3.fromRGB(95, 80, 65), 0.82)
+	-- Handle (wood)
+	silPart(container, -65 * s, 0, 40 * s, 12 * s, handleColor, 0.82)
+	-- Handle wraps (3 small rings for texture)
+	for i = -1, 1 do
+		silPart(container, -65 * s + i * 12 * s, 0, 2 * s, 13 * s, Color3.fromRGB(50, 35, 25), 0.85)
+	end
+	-- Pommel cap
+	silPart(container, -88 * s, 0, 6 * s, 14 * s, Color3.fromRGB(95, 80, 65), 0.82)
+end
+
+-- ============================================================
+-- BULLET SHELL CASINGS — small brass cylinders scattered as "ejected" decor.
+-- ============================================================
+local function makeShell(parent: Instance, x: number, y: number, scale: number, rot: number)
+	local s = scale
+	local shell = Instance.new("Frame")
+	shell.AnchorPoint = Vector2.new(0.5, 0.5)
+	shell.Position = UDim2.fromScale(x, y)
+	shell.Size = UDim2.fromOffset(28 * s, 9 * s)
+	shell.BackgroundColor3 = Color3.fromRGB(195, 145, 60) -- brass
+	shell.BackgroundTransparency = 0.78
+	shell.BorderSizePixel = 0
+	shell.Rotation = rot
+	shell.Parent = parent
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 2)
+	corner.Parent = shell
+	-- Primer rim (small darker bump at one end)
+	local rim = Instance.new("Frame")
+	rim.AnchorPoint = Vector2.new(1, 0.5)
+	rim.Position = UDim2.new(1, 0, 0.5, 0)
+	rim.Size = UDim2.fromOffset(3 * s, 11 * s)
+	rim.BackgroundColor3 = Color3.fromRGB(135, 90, 35)
+	rim.BackgroundTransparency = 0.78
+	rim.BorderSizePixel = 0
+	rim.Parent = shell
+end
+
+-- ============================================================
+-- SCATTER DECORATIONS across the backdrop
+-- ============================================================
+makeRifleSilhouette(backdrop, 0.16, 0.28, 1.05, -10)
+makeRifleSilhouette(backdrop, 0.84, 0.24, 0.95, 14)
+makeRifleSilhouette(backdrop, 0.12, 0.78, 0.85, -22)
+makeRifleSilhouette(backdrop, 0.86, 0.74, 1.0, 20)
+makePistolSilhouette(backdrop, 0.28, 0.52, 0.85, -18)
+makePistolSilhouette(backdrop, 0.72, 0.56, 0.95, 22)
+makeKnifeSilhouette(backdrop, 0.22, 0.42, 0.85, 35)
+makeKnifeSilhouette(backdrop, 0.78, 0.38, 0.9, -38)
+makeKnifeSilhouette(backdrop, 0.5, 0.88, 0.75, 4)
+-- Shell casings scattered around for "ejected brass" vibe
+makeShell(backdrop, 0.08, 0.40, 1.0, 18)
+makeShell(backdrop, 0.93, 0.62, 0.95, -28)
+makeShell(backdrop, 0.35, 0.78, 0.8, 70)
+makeShell(backdrop, 0.65, 0.82, 0.85, -50)
+makeShell(backdrop, 0.45, 0.18, 0.75, 95)
+makeShell(backdrop, 0.55, 0.20, 0.7, -110)
+makeShell(backdrop, 0.18, 0.90, 0.9, 12)
+makeShell(backdrop, 0.82, 0.92, 0.85, -22)
+
+-- ============================================================
+-- CORNER HEX-DOT GRID — tiny dots in each corner suggesting a tech overlay.
+-- Adds visual texture without competing with the main UI.
+-- ============================================================
+local function makeDotGrid(originX: number, originY: number, cols: number, rows: number, color: Color3)
+	for r = 0, rows - 1 do
+		for c = 0, cols - 1 do
+			local d = Instance.new("Frame")
+			d.AnchorPoint = Vector2.new(0.5, 0.5)
+			d.Position = UDim2.fromOffset(originX + c * 14, originY + r * 14)
+			d.Size = UDim2.fromOffset(2, 2)
+			d.BackgroundColor3 = color
+			d.BackgroundTransparency = 0.82
+			d.BorderSizePixel = 0
+			d.Parent = backdrop
+			local cc = Instance.new("UICorner"); cc.CornerRadius = UDim.new(1, 0); cc.Parent = d
+		end
+	end
+end
+makeDotGrid(20,  20,  9, 9, Color3.fromRGB(220, 175, 100))
+makeDotGrid(20,  -150, 9, 9, Color3.fromRGB(220, 175, 100))  -- placeholder; positioned via offset-from-bottom not directly possible without UDim conversions
+
+-- ============================================================
+-- VIGNETTE — darken edges, keep center brighter for visual focus
+-- ============================================================
+local vignette = Instance.new("Frame")
+vignette.Size = UDim2.fromScale(1, 1)
+vignette.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+vignette.BackgroundTransparency = 0.45
+vignette.BorderSizePixel = 0
+vignette.Parent = backdrop
+local vignetteGradient = Instance.new("UIGradient")
+vignetteGradient.Color = ColorSequence.new(Color3.fromRGB(0, 0, 0))
+vignetteGradient.Transparency = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 0.35),
+	NumberSequenceKeypoint.new(0.5, 1),
+	NumberSequenceKeypoint.new(1, 0.35),
+})
+vignetteGradient.Rotation = 0
+vignetteGradient.Parent = vignette
+
+-- Secondary vertical vignette for top/bottom edge darkening
+local vignette2 = Instance.new("Frame")
+vignette2.Size = UDim2.fromScale(1, 1)
+vignette2.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+vignette2.BackgroundTransparency = 0.6
+vignette2.BorderSizePixel = 0
+vignette2.Parent = backdrop
+local vig2Grad = Instance.new("UIGradient")
+vig2Grad.Color = ColorSequence.new(Color3.fromRGB(0, 0, 0))
+vig2Grad.Transparency = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 0.55),
+	NumberSequenceKeypoint.new(0.5, 1),
+	NumberSequenceKeypoint.new(1, 0.55),
+})
+vig2Grad.Rotation = 90
+vig2Grad.Parent = vignette2
+
+-- Title (top center)
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(0, 600, 0, 80)
+title.AnchorPoint = Vector2.new(0.5, 0)
+title.Position = UDim2.new(0.5, 0, 0, 40)
+title.BackgroundTransparency = 1
+title.Font = Enum.Font.GothamBlack
+title.TextSize = 60
+title.TextColor3 = Color3.fromRGB(255, 240, 200)
+title.TextStrokeColor3 = Color3.fromRGB(180, 130, 50) -- amber/gold stroke (armory)
+title.TextStrokeTransparency = 0.3
+title.Text = "SHOOTING GAME"
+title.Parent = screenGui
+
+-- Subtitle
+local subtitle = Instance.new("TextLabel")
+subtitle.Size = UDim2.new(0, 400, 0, 20)
+subtitle.AnchorPoint = Vector2.new(0.5, 0)
+subtitle.Position = UDim2.new(0.5, 0, 0, 115)
+subtitle.BackgroundTransparency = 1
+subtitle.Font = Enum.Font.Gotham
+subtitle.TextSize = 14
+subtitle.TextColor3 = Color3.fromRGB(220, 180, 130)
+subtitle.Text = "TACTICAL DEATHMATCH"
+subtitle.Parent = screenGui
+
+-- ===== Center column: Mode cards (visible at once) + PLAY button =====
+local centerCol = Instance.new("Frame")
+centerCol.Size = UDim2.new(0, 560, 0, 320)
+centerCol.AnchorPoint = Vector2.new(0.5, 0.5)
+centerCol.Position = UDim2.new(0.5, 0, 0.5, -10)
+centerCol.BackgroundTransparency = 1
+centerCol.Parent = screenGui
+
+-- Section label above the mode cards
+local sectionLbl = Instance.new("TextLabel")
+sectionLbl.Size = UDim2.new(1, 0, 0, 18)
+sectionLbl.Position = UDim2.new(0, 0, 0, 0)
+sectionLbl.BackgroundTransparency = 1
+sectionLbl.Font = Enum.Font.GothamBold
+sectionLbl.TextSize = 11
+sectionLbl.TextColor3 = Color3.fromRGB(180, 150, 100)
+sectionLbl.TextXAlignment = Enum.TextXAlignment.Center
+sectionLbl.Text = "— SELECT GAME MODE —"
+sectionLbl.Parent = centerCol
+
+-- Mode cards: visible side-by-side instead of cycle dropdown, so the player
+-- can compare options at a glance (and adding a 3rd mode later won't change
+-- the interaction model).
+type ModeInfo = { id: string, name: string, tagline: string, info: string, accent: Color3 }
+local MODES: { ModeInfo } = {
+	{
+		id = "deathmatch",
+		name = "DEATHMATCH",
+		tagline = "FREE-FOR-ALL",
+		info = "Respawn terus, kill sebanyak-banyaknya dalam 6 menit. Semua senjata bebas.",
+		accent = Color3.fromRGB(220, 100, 80),
+	},
+	{
+		id = "training",
+		name = "PRACTICE",
+		tagline = "SOLO RANGE",
+		info = "Range room with dummy targets. Test loadouts and aim freely.",
+		accent = Color3.fromRGB(100, 170, 220),
+	},
+}
+local currentModeIndex = 1
+
+local modeCards: { TextButton } = {}
+local modeStrokes: { UIStroke } = {}
+
+local CARD_WIDTH = 260
+local CARD_GAP = 20
+local CARDS_TOTAL = #MODES * CARD_WIDTH + (#MODES - 1) * CARD_GAP
+
+local function selectMode(index: number)
+	currentModeIndex = index
+	for i, card in modeCards do
+		local stroke = modeStrokes[i]
+		if i == index then
+			stroke.Color = MODES[i].accent
+			stroke.Thickness = 3
+			stroke.Transparency = 0
+			card.BackgroundColor3 = Color3.fromRGB(32, 36, 48)
+		else
+			stroke.Color = Color3.fromRGB(60, 60, 72)
+			stroke.Thickness = 1
+			stroke.Transparency = 0.3
+			card.BackgroundColor3 = Color3.fromRGB(22, 24, 32)
+		end
+	end
+end
+
+for i, mode in MODES do
+	local card = Instance.new("TextButton")
+	card.Size = UDim2.new(0, CARD_WIDTH, 0, 160)
+	card.AnchorPoint = Vector2.new(0, 0)
+	card.Position = UDim2.new(0.5, -CARDS_TOTAL / 2 + (i - 1) * (CARD_WIDTH + CARD_GAP), 0, 32)
+	card.BackgroundColor3 = Color3.fromRGB(22, 24, 32)
+	card.BorderSizePixel = 0
+	card.AutoButtonColor = false
+	card.Text = ""
+	card.Parent = centerCol
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = card
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(60, 60, 72)
+	stroke.Thickness = 1
+	stroke.Parent = card
+
+	-- Top accent bar (3px) — the only saturated color, so cards feel restrained
+	local accentBar = Instance.new("Frame")
+	accentBar.Size = UDim2.new(1, 0, 0, 3)
+	accentBar.BackgroundColor3 = mode.accent
+	accentBar.BorderSizePixel = 0
+	accentBar.Parent = card
+	local barCorner = Instance.new("UICorner")
+	barCorner.CornerRadius = UDim.new(0, 10)
+	barCorner.Parent = accentBar
+
+	-- Tagline (small, muted)
+	local tag = Instance.new("TextLabel")
+	tag.Size = UDim2.new(1, -24, 0, 16)
+	tag.Position = UDim2.new(0, 12, 0, 18)
+	tag.BackgroundTransparency = 1
+	tag.Font = Enum.Font.GothamBold
+	tag.TextSize = 10
+	tag.TextColor3 = mode.accent
+	tag.TextXAlignment = Enum.TextXAlignment.Left
+	tag.Text = mode.tagline
+	tag.Parent = card
+
+	-- Name (large, prominent)
+	local name = Instance.new("TextLabel")
+	name.Size = UDim2.new(1, -24, 0, 32)
+	name.Position = UDim2.new(0, 12, 0, 38)
+	name.BackgroundTransparency = 1
+	name.Font = Enum.Font.GothamBlack
+	name.TextSize = 24
+	name.TextColor3 = Color3.fromRGB(245, 245, 250)
+	name.TextXAlignment = Enum.TextXAlignment.Left
+	name.Text = mode.name
+	name.Parent = card
+
+	-- Description (multi-line, wrapped)
+	local desc = Instance.new("TextLabel")
+	desc.Size = UDim2.new(1, -24, 0, 60)
+	desc.Position = UDim2.new(0, 12, 0, 78)
+	desc.BackgroundTransparency = 1
+	desc.Font = Enum.Font.Gotham
+	desc.TextSize = 12
+	desc.TextColor3 = Color3.fromRGB(150, 155, 170)
+	desc.TextXAlignment = Enum.TextXAlignment.Left
+	desc.TextYAlignment = Enum.TextYAlignment.Top
+	desc.TextWrapped = true
+	desc.Text = mode.info
+	desc.Parent = card
+
+	-- Selected check indicator (bottom-right). Hidden when unselected.
+	local checkLbl = Instance.new("TextLabel")
+	checkLbl.Name = "Check"
+	checkLbl.Size = UDim2.new(0, 60, 0, 16)
+	checkLbl.AnchorPoint = Vector2.new(1, 1)
+	checkLbl.Position = UDim2.new(1, -12, 1, -10)
+	checkLbl.BackgroundTransparency = 1
+	checkLbl.Font = Enum.Font.GothamBold
+	checkLbl.TextSize = 11
+	checkLbl.TextColor3 = mode.accent
+	checkLbl.TextXAlignment = Enum.TextXAlignment.Right
+	checkLbl.Text = "● SELECTED"
+	checkLbl.Visible = false
+	checkLbl.Parent = card
+
+	card.MouseEnter:Connect(function()
+		if currentModeIndex ~= i then
+			stroke.Color = mode.accent
+			stroke.Transparency = 0.5
+		end
+	end)
+	card.MouseLeave:Connect(function()
+		if currentModeIndex ~= i then
+			stroke.Color = Color3.fromRGB(60, 60, 72)
+			stroke.Transparency = 0.3
+		end
+	end)
+	card.MouseButton1Click:Connect(function()
+		selectMode(i)
+		for j, c in modeCards do
+			local check = c:FindFirstChild("Check") :: TextLabel?
+			if check then check.Visible = (j == i) end
+		end
+	end)
+
+	modeCards[i] = card
+	modeStrokes[i] = stroke
+end
+
+selectMode(1)
+local firstCheck = modeCards[1]:FindFirstChild("Check") :: TextLabel?
+if firstCheck then firstCheck.Visible = true end
+
+-- PLAY button — wider and centered below the mode cards, amber gradient that
+-- ties into the armory/title theme instead of generic bright green.
+local playBtn = Instance.new("TextButton")
+playBtn.Size = UDim2.new(0, CARDS_TOTAL, 0, 72)
+playBtn.AnchorPoint = Vector2.new(0.5, 0)
+playBtn.Position = UDim2.new(0.5, 0, 0, 220)
+playBtn.BackgroundColor3 = Color3.fromRGB(210, 160, 70)
+playBtn.BorderSizePixel = 0
+playBtn.AutoButtonColor = false
+playBtn.Font = Enum.Font.GothamBlack
+playBtn.TextSize = 30
+playBtn.TextColor3 = Color3.fromRGB(28, 22, 14)
+playBtn.Text = "▶  PLAY"
+playBtn.Parent = centerCol
+
+local playCorner = Instance.new("UICorner")
+playCorner.CornerRadius = UDim.new(0, 10)
+playCorner.Parent = playBtn
+
+local playGradient = Instance.new("UIGradient")
+playGradient.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 200, 110)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(195, 140, 50)),
+})
+playGradient.Rotation = 90
+playGradient.Parent = playBtn
+
+local playStroke = Instance.new("UIStroke")
+playStroke.Color = Color3.fromRGB(255, 220, 140)
+playStroke.Thickness = 2
+playStroke.Parent = playBtn
+
+playBtn.MouseEnter:Connect(function()
+	playStroke.Thickness = 4
+end)
+playBtn.MouseLeave:Connect(function()
+	playStroke.Thickness = 2
+end)
+
+-- ===== Side columns: secondary action buttons =====
+-- Uniform slim dark cards. The previous design used rainbow saturated fills
+-- (purple/orange/blue all at full chroma) which made the menu feel like an
+-- arcade lobby; the redesign keeps a single muted dark base and lets each
+-- button's accent show only on the left edge + hover stroke + icon tint.
+type SideButton = { label: string, icon: string, accent: Color3, signal: string }
+
+local SIDE_W = 200
+local SIDE_H = 56
+local SIDE_GAP = 12
+
+local function makeSideButton(parent: Instance, def: SideButton, anchor: Vector2, position: UDim2)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, SIDE_W, 0, SIDE_H)
+	btn.AnchorPoint = anchor
+	btn.Position = position
+	btn.BackgroundColor3 = Color3.fromRGB(24, 26, 34)
+	btn.BorderSizePixel = 0
+	btn.AutoButtonColor = false
+	btn.Text = ""
+	btn.Parent = parent
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = btn
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(55, 58, 70)
+	stroke.Thickness = 1
+	stroke.Transparency = 0.2
+	stroke.Parent = btn
+
+	-- Left accent strip — the only colored element at rest
+	local accentBar = Instance.new("Frame")
+	accentBar.Size = UDim2.new(0, 3, 1, -16)
+	accentBar.Position = UDim2.new(0, 0, 0, 8)
+	accentBar.BackgroundColor3 = def.accent
+	accentBar.BorderSizePixel = 0
+	accentBar.Parent = btn
+	local ac = Instance.new("UICorner")
+	ac.CornerRadius = UDim.new(0, 2)
+	ac.Parent = accentBar
+
+	-- Icon (left side, tinted with accent)
+	local iconLbl = Instance.new("TextLabel")
+	iconLbl.Size = UDim2.new(0, 32, 1, 0)
+	iconLbl.Position = UDim2.new(0, 12, 0, 0)
+	iconLbl.BackgroundTransparency = 1
+	iconLbl.Font = Enum.Font.GothamBold
+	iconLbl.TextSize = 18
+	iconLbl.TextColor3 = def.accent
+	iconLbl.Text = def.icon
+	iconLbl.Parent = btn
+
+	-- Label (right side, white)
+	local labelLbl = Instance.new("TextLabel")
+	labelLbl.Size = UDim2.new(1, -58, 1, 0)
+	labelLbl.Position = UDim2.new(0, 50, 0, 0)
+	labelLbl.BackgroundTransparency = 1
+	labelLbl.Font = Enum.Font.GothamBold
+	labelLbl.TextSize = 14
+	labelLbl.TextColor3 = Color3.fromRGB(225, 228, 240)
+	labelLbl.TextXAlignment = Enum.TextXAlignment.Left
+	labelLbl.Text = def.label
+	labelLbl.Parent = btn
+
+	btn.MouseEnter:Connect(function()
+		btn.BackgroundColor3 = Color3.fromRGB(32, 36, 48)
+		stroke.Color = def.accent
+		stroke.Transparency = 0
+	end)
+	btn.MouseLeave:Connect(function()
+		btn.BackgroundColor3 = Color3.fromRGB(24, 26, 34)
+		stroke.Color = Color3.fromRGB(55, 58, 70)
+		stroke.Transparency = 0.2
+	end)
+
+	btn.MouseButton1Click:Connect(function()
+		ClientSignals.Get(def.signal):Fire()
+	end)
+
+	return btn
+end
+
+-- Left column buttons (icons use simple typographic glyphs instead of emoji
+-- so they render consistently across platforms)
+local leftButtons: { SideButton } = {
+	{ label = "LOADOUT",   icon = "▤", accent = Color3.fromRGB(110, 170, 230), signal = "OpenLoadout" },
+	{ label = "COSMETICS", icon = "✦", accent = Color3.fromRGB(190, 130, 230), signal = "OpenCosmetics" },
+	{ label = "MISSIONS",  icon = "✓", accent = Color3.fromRGB(230, 170, 90),  signal = "OpenMissions" },
+}
+
+for i, def in leftButtons do
+	local yOffset = -((#leftButtons - 1) * (SIDE_H + SIDE_GAP)) / 2 + (i - 1) * (SIDE_H + SIDE_GAP)
+	makeSideButton(screenGui, def, Vector2.new(0, 0.5), UDim2.new(0, 40, 0.5, yOffset))
+end
+
+-- Right column buttons
+local rightButtons: { SideButton } = {
+	{ label = "SHOP",        icon = "$", accent = Color3.fromRGB(170, 130, 230), signal = "OpenShop" },
+	{ label = "BATTLE PASS", icon = "★", accent = Color3.fromRGB(240, 190, 90),  signal = "OpenBP" },
+	{ label = "SETTINGS",    icon = "⚙", accent = Color3.fromRGB(140, 155, 180), signal = "OpenSettings" },
+}
+
+for i, def in rightButtons do
+	local yOffset = -((#rightButtons - 1) * (SIDE_H + SIDE_GAP)) / 2 + (i - 1) * (SIDE_H + SIDE_GAP)
+	makeSideButton(screenGui, def, Vector2.new(1, 0.5), UDim2.new(1, -40, 0.5, yOffset))
+end
+
+-- Player name at bottom-left
+local playerLabel = Instance.new("TextLabel")
+playerLabel.Size = UDim2.new(0, 300, 0, 24)
+playerLabel.AnchorPoint = Vector2.new(0, 1)
+playerLabel.Position = UDim2.new(0, 30, 1, -30)
+playerLabel.BackgroundTransparency = 1
+playerLabel.Font = Enum.Font.Gotham
+playerLabel.TextSize = 14
+playerLabel.TextColor3 = Color3.fromRGB(150, 160, 180)
+playerLabel.TextXAlignment = Enum.TextXAlignment.Left
+playerLabel.Text = "▸ " .. player.Name
+playerLabel.Parent = screenGui
+
+-- Version label bottom-right
+local versionLabel = Instance.new("TextLabel")
+versionLabel.Size = UDim2.new(0, 200, 0, 20)
+versionLabel.AnchorPoint = Vector2.new(1, 1)
+versionLabel.Position = UDim2.new(1, -30, 1, -30)
+versionLabel.BackgroundTransparency = 1
+versionLabel.Font = Enum.Font.Gotham
+versionLabel.TextSize = 12
+versionLabel.TextColor3 = Color3.fromRGB(90, 100, 120)
+versionLabel.TextXAlignment = Enum.TextXAlignment.Right
+versionLabel.Text = "v0.1 — early dev"
+versionLabel.Parent = screenGui
+
+-- ===== Scriptable cinematic camera =====
+local function setupMenuCamera()
+	camera.CameraType = Enum.CameraType.Scriptable
+	-- Position high above lobby looking down at angle
+	local startTime = os.clock()
+	local conn
+	conn = RunService.RenderStepped:Connect(function()
+		if not screenGui.Enabled then
+			conn:Disconnect()
+			return
+		end
+		local t = os.clock() - startTime
+		local angle = t * 0.1 -- slow rotation
+		local radius = 80
+		local height = 40
+		local cx = math.cos(angle) * radius
+		local cz = math.sin(angle) * radius
+		camera.CFrame = CFrame.lookAt(
+			Vector3.new(cx, height, cz),
+			Vector3.new(0, 5, 0)
+		)
+	end)
+end
+
+setupMenuCamera()
+
+-- Free cursor (so user can click UI)
+UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+UserInputService.MouseIconEnabled = true
+
+-- ===== Show / Hide menu =====
+local function hideMenu()
+	local tween = TweenService:Create(backdrop, TweenInfo.new(0.4), { BackgroundTransparency = 1 })
+	tween:Play()
+	TweenService:Create(title, TweenInfo.new(0.3), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+	TweenService:Create(subtitle, TweenInfo.new(0.3), { TextTransparency = 1 }):Play()
+	for _, child in screenGui:GetChildren() do
+		if child:IsA("GuiObject") and child ~= backdrop then
+			TweenService:Create(child, TweenInfo.new(0.3), { BackgroundTransparency = 1 }):Play()
+			if child:IsA("TextButton") or child:IsA("TextLabel") then
+				TweenService:Create(child, TweenInfo.new(0.3), { TextTransparency = 1 }):Play()
+			end
+		end
+	end
+	task.wait(0.4)
+	screenGui.Enabled = false
+	camera.CameraType = Enum.CameraType.Custom
+end
+
+-- Restore menu state (called when player exits training back to menu)
+local function showMenu()
+	-- Reset PLAY button
+	playBtn.Text = "▶  PLAY"
+	playBtn.AutoButtonColor = false
+
+	-- Restore backdrop + title transparencies
+	backdrop.BackgroundTransparency = 0
+	title.TextTransparency = 0
+	title.TextStrokeTransparency = 0.4
+	subtitle.TextTransparency = 0
+
+	-- Restore all child transparencies
+	for _, child in screenGui:GetChildren() do
+		if child:IsA("GuiObject") and child ~= backdrop then
+			child.BackgroundTransparency = (child:IsA("Frame") and child ~= backdrop) and 0 or child.BackgroundTransparency
+			if child:IsA("TextButton") or child:IsA("TextLabel") then
+				child.TextTransparency = 0
+			end
+		end
+	end
+
+	screenGui.Enabled = true
+	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	UserInputService.MouseIconEnabled = true
+	setupMenuCamera()
+end
+
+playBtn.MouseButton1Click:Connect(function()
+	playBtn.Text = "LOADING..."
+	playBtn.AutoButtonColor = false
+	Remotes.RequestSpawn:FireServer(MODES[currentModeIndex].id)
+	hideMenu()
+end)
+
+-- (mode selection now happens via the card click handlers above; no dropdown
+-- cycle button needed since all modes are visible at once.)
+
+-- ===== Training-mode exit (M key) =====
+local isTrainingMode = false
+
+Remotes.EnterTrainingMode.OnClientEvent:Connect(function(active: boolean)
+	isTrainingMode = active == true
+	if not active then
+		-- Server exited training (probably via ExitToMainMenu request) — show menu
+		task.wait(0.1)
+		showMenu()
+	end
+end)
+
+-- ============================================================
+-- WAITING / SPECTATOR OVERLAY
+-- Shown when player picked a mode but match isn't running their mode yet (or
+-- they're between rounds in casual). Camera scriptable-orbits a random alive
+-- character so they're spectating the live action, not staring at a static UI.
+-- ============================================================
+local waitingGui = Instance.new("ScreenGui")
+waitingGui.Name = "ModeWaitingOverlay"
+waitingGui.ResetOnSpawn = false
+waitingGui.IgnoreGuiInset = true
+waitingGui.DisplayOrder = 200
+waitingGui.Enabled = false
+waitingGui.Parent = playerGui
+
+-- Thin top + bottom bars (CS-style "spectating" letterbox) so camera is the main view
+local topBar = Instance.new("Frame")
+topBar.Size = UDim2.new(1, 0, 0, 60)
+topBar.BackgroundColor3 = Color3.fromRGB(8, 10, 16)
+topBar.BackgroundTransparency = 0.15
+topBar.BorderSizePixel = 0
+topBar.Parent = waitingGui
+
+local bottomBar = Instance.new("Frame")
+bottomBar.Size = UDim2.new(1, 0, 0, 110)
+bottomBar.AnchorPoint = Vector2.new(0, 1)
+bottomBar.Position = UDim2.new(0, 0, 1, 0)
+bottomBar.BackgroundColor3 = Color3.fromRGB(8, 10, 16)
+bottomBar.BackgroundTransparency = 0.15
+bottomBar.BorderSizePixel = 0
+bottomBar.Parent = waitingGui
+
+local waitTag = Instance.new("TextLabel")
+waitTag.Size = UDim2.new(1, -40, 0, 16)
+waitTag.Position = UDim2.new(0, 20, 0, 10)
+waitTag.BackgroundTransparency = 1
+waitTag.Font = Enum.Font.GothamBold
+waitTag.TextSize = 12
+waitTag.TextColor3 = Color3.fromRGB(210, 160, 80)
+waitTag.TextXAlignment = Enum.TextXAlignment.Center
+waitTag.Text = "SPECTATING — WAITING TO JOIN"
+waitTag.Parent = topBar
+
+local waitTitle = Instance.new("TextLabel")
+waitTitle.Size = UDim2.new(1, -40, 0, 30)
+waitTitle.Position = UDim2.new(0, 20, 0, 26)
+waitTitle.BackgroundTransparency = 1
+waitTitle.Font = Enum.Font.GothamBlack
+waitTitle.TextSize = 22
+waitTitle.TextColor3 = Color3.fromRGB(245, 245, 250)
+waitTitle.TextXAlignment = Enum.TextXAlignment.Center
+waitTitle.Text = "Joining next round..."
+waitTitle.Parent = topBar
+
+local waitDesc = Instance.new("TextLabel")
+waitDesc.Size = UDim2.new(1, -40, 0, 36)
+waitDesc.Position = UDim2.new(0, 20, 0, 14)
+waitDesc.BackgroundTransparency = 1
+waitDesc.Font = Enum.Font.Gotham
+waitDesc.TextSize = 13
+waitDesc.TextColor3 = Color3.fromRGB(170, 180, 200)
+waitDesc.TextXAlignment = Enum.TextXAlignment.Center
+waitDesc.TextYAlignment = Enum.TextYAlignment.Top
+waitDesc.TextWrapped = true
+waitDesc.Text = "Lo lagi nonton match yang jalan. Pas ronde berikutnya mulai lo auto spawn."
+waitDesc.Parent = bottomBar
+
+local waitCancelBtn = Instance.new("TextButton")
+waitCancelBtn.Size = UDim2.new(0, 200, 0, 36)
+waitCancelBtn.AnchorPoint = Vector2.new(0.5, 1)
+waitCancelBtn.Position = UDim2.new(0.5, 0, 1, -20)
+waitCancelBtn.BackgroundColor3 = Color3.fromRGB(60, 65, 85)
+waitCancelBtn.BorderSizePixel = 0
+waitCancelBtn.AutoButtonColor = false
+waitCancelBtn.Font = Enum.Font.GothamBold
+waitCancelBtn.TextSize = 14
+waitCancelBtn.TextColor3 = Color3.fromRGB(245, 245, 250)
+waitCancelBtn.Text = "Cancel (M) — back to menu"
+waitCancelBtn.Parent = bottomBar
+local waitCancelCorner = Instance.new("UICorner"); waitCancelCorner.CornerRadius = UDim.new(0, 8); waitCancelCorner.Parent = waitCancelBtn
+
+-- ============================================================
+-- SPECTATOR CAMERA
+-- Picks a random alive character (player or bot model in workspace) every 5s
+-- and orbits it. Falls back to a static aerial view of dust2 origin if nothing
+-- alive. Active only while waitingGui.Enabled.
+-- ============================================================
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local spectateTarget: BasePart? = nil
+local spectateOrbitAngle = 0
+local nextTargetSwapAt = 0
+
+local function pickSpectatorTarget(): BasePart?
+	local candidates: { BasePart } = {}
+	-- Player characters
+	for _, p in Players:GetPlayers() do
+		if p == player then continue end
+		local char = p.Character
+		if not char then continue end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		local hrp = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if hum and hum.Health > 0 and hrp then
+			table.insert(candidates, hrp)
+		end
+	end
+	-- Bots (models with IsBot attribute OR named with _T/_CT suffix from CasualBotService)
+	for _, m in Workspace:GetChildren() do
+		if not m:IsA("Model") then continue end
+		if m == player.Character then continue end
+		local hum = m:FindFirstChildOfClass("Humanoid")
+		local hrp = m:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if hum and hum.Health > 0 and hrp then
+			-- Heuristic: it's a bot if it has IsBot attr OR name contains _T/_CT
+			if m:GetAttribute("IsBot") or string.find(m.Name, "_T%d") or string.find(m.Name, "_CT%d") then
+				table.insert(candidates, hrp)
+			end
+		end
+	end
+	if #candidates == 0 then return nil end
+	return candidates[math.random(#candidates)]
+end
+
+local spectatorActive = false
+RunService:BindToRenderStep("SpectatorCam", Enum.RenderPriority.Camera.Value + 2, function(dt)
+	if not spectatorActive then return end
+	local now = os.clock()
+	-- Swap target every 5s OR if current target dies / disappears
+	local needSwap = now >= nextTargetSwapAt
+	if spectateTarget then
+		local parent = spectateTarget.Parent
+		if not parent or not parent.Parent then needSwap = true end
+		if parent then
+			local hum = parent:FindFirstChildOfClass("Humanoid") :: Humanoid?
+			if not hum or hum.Health <= 0 then needSwap = true end
+		end
+	else
+		needSwap = true
+	end
+	if needSwap then
+		spectateTarget = pickSpectatorTarget()
+		nextTargetSwapAt = now + 5
+	end
+	if spectateTarget then
+		spectateOrbitAngle += dt * 0.25 -- slow orbit
+		local radius = 14
+		local height = 6
+		local pivot = spectateTarget.Position
+		local camPos = pivot + Vector3.new(math.cos(spectateOrbitAngle) * radius, height, math.sin(spectateOrbitAngle) * radius)
+		camera.CameraType = Enum.CameraType.Scriptable
+		camera.CFrame = CFrame.lookAt(camPos, pivot + Vector3.new(0, 2, 0))
+	else
+		-- No targets — slow aerial pan over arena origin
+		spectateOrbitAngle += dt * 0.15
+		local origin = Vector3.new(0, 130, 0) -- arena built ~Y=100, look down from above
+		local camPos = origin + Vector3.new(math.cos(spectateOrbitAngle) * 80, 50, math.sin(spectateOrbitAngle) * 80)
+		camera.CameraType = Enum.CameraType.Scriptable
+		camera.CFrame = CFrame.lookAt(camPos, origin)
+	end
+end)
+
+local function stopSpectator()
+	spectatorActive = false
+	spectateTarget = nil
+	if camera.CameraType == Enum.CameraType.Scriptable then
+		camera.CameraType = Enum.CameraType.Custom
+	end
+end
+
+waitCancelBtn.MouseButton1Click:Connect(function()
+	Remotes.ExitToMainMenu:FireServer()
+	waitingGui.Enabled = false
+	stopSpectator()
+	task.wait(0.15)
+	showMenu()
+end)
+
+Remotes.CasualWaitingForMatch.OnClientEvent:Connect(function(payload: any)
+	-- Payload back-compat: server may send boolean OR { waiting, mode, activeMatch }
+	local waiting: boolean
+	local pMode: string? = nil
+	local pActive: boolean = false
+	if typeof(payload) == "boolean" then
+		waiting = payload
+	elseif typeof(payload) == "table" then
+		waiting = payload.waiting == true
+		pMode = payload.mode
+		pActive = payload.activeMatch == true
+	else
+		waiting = false
+	end
+
+	waitingGui.Enabled = waiting
+	if waiting then
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		UserInputService.MouseIconEnabled = true
+		spectatorActive = true
+		nextTargetSwapAt = 0 -- force immediate target pick
+		-- Customize text per mode
+		if pMode == "deathmatch" then
+			waitTag.Text = "SPECTATING — WAITING FOR DEATHMATCH"
+			waitTag.TextColor3 = Color3.fromRGB(220, 100, 80)
+			waitTitle.Text = if pActive then "Joining active deathmatch..." else "Waiting for next DM match..."
+			waitDesc.Text = "Lo lagi nonton match. Pas DM match berikutnya mulai lo auto spawn."
+		else
+			waitTag.Text = "SPECTATING — JOINING NEXT ROUND"
+			waitTag.TextColor3 = Color3.fromRGB(210, 160, 80)
+			waitTitle.Text = if pActive then "Joining next round..." else "Waiting for next casual match..."
+			waitDesc.Text = "Lo lagi nonton match. Pas ronde berikutnya mulai lo nggantiin satu bot dan spawn di team spawn."
+		end
+	else
+		stopSpectator()
+	end
+end)
+
+UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
+	if processed then return end
+	-- M = exit current session (training OR deathmatch OR casual wait) and return to main menu
+	if input.KeyCode == Enum.KeyCode.M then
+		Remotes.ExitToMainMenu:FireServer()
+		waitingGui.Enabled = false
+		stopSpectator()
+		task.wait(0.15)
+		showMenu()
+	end
+end)
+
+return MainMenuController

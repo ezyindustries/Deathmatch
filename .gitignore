@@ -1,0 +1,40 @@
+# Roblox Studio backups + tmp
+*.rbxl.lock
+*~
+*.bak
+.DS_Store
+
+# Lune cache
+.lune/
+
+# Rojo
+build/
+*.rbxlx.lock
+*.rbxl.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Studio session crash dumps
+*.dmp
+
+# Auto-generated sourcemap (regenerate via `rojo sourcemap`)
+sourcemap.json
+
+# Test outputs
+test-results/
+coverage/
+
+# OS
+Thumbs.db
+ehthumbs.db
+
+# Place backup binary — KEEP THIS in repo for now since it's the source of
+# truth for geometry/non-script Instances. Re-evaluate if file gets large
+# (>10MB) — then consider Git LFS or external backup.
+# !deathmatch.rbxl
+
+# Plugin sync artifacts (already removed but in case)
+weppy-project-sync/
