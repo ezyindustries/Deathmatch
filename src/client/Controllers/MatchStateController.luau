@@ -62,10 +62,13 @@ MatchStateController.stateColorKey = stateColorKey
 -- ---------------------------------------------------------------------------
 -- Layout constants
 -- ---------------------------------------------------------------------------
-local WIDTH_MOBILE = 280
-local WIDTH_DESKTOP = 360
-local HEIGHT_MOBILE = 40
-local HEIGHT_DESKTOP = 44
+-- Slimmer compact MatchHUD: "● MATCH 5:26" — single-word state + timer.
+-- Sized down ~40% from earlier so it sits as a discreet header chip near
+-- the top edge instead of a wide banner.
+local WIDTH_MOBILE = 170
+local WIDTH_DESKTOP = 210
+local HEIGHT_MOBILE = 28
+local HEIGHT_DESKTOP = 32
 local MOBILE_BREAKPOINT = 700
 
 local DOT_SIZE = 8
@@ -141,7 +144,7 @@ stateLabel.TextSize = UITheme.FontSize.body
 stateLabel.TextColor3 = UITheme.Color.textPrimary
 stateLabel.TextXAlignment = Enum.TextXAlignment.Center
 stateLabel.TextYAlignment = Enum.TextYAlignment.Center
-stateLabel.Text = "CONNECTING"
+stateLabel.Text = "..."
 stateLabel.LayoutOrder = 2
 stateLabel.Parent = container
 
@@ -177,7 +180,8 @@ timerLabel.Parent = container
 -- fires when chat opens/closes or the player rotates the device.
 local function refreshTopOffset()
 	local topInset = GuiService:GetGuiInset().Y
-	container.Position = UDim2.new(0.5, 0, 0, topInset + UITheme.Space.l)
+	-- Tight to topbar — user wants the match chip "mepet atas" (snug against top).
+	container.Position = UDim2.new(0.5, 0, 0, topInset + UITheme.Space.xs)
 end
 refreshTopOffset()
 GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(refreshTopOffset)
@@ -279,7 +283,11 @@ Remotes.MatchStateChanged.OnClientEvent:Connect(function(payload: MatchState.Sta
 	currentPayload = payload
 	currentState = payload.state
 
-	stateLabel.Text = string.upper(MatchState.DisplayName[payload.state] or payload.state)
+	-- Short one-word label (user feedback): "MATCH IN PROGRESS" → "MATCH",
+	-- "Waiting for players" → "LOBBY", etc. The full DisplayName lives in
+	-- MatchState.luau for any other consumer; here we just upper-case the
+	-- enum key itself for the most compact chip text.
+	stateLabel.Text = string.upper(payload.state)
 	applyStateColor(payload.state)
 	celebrateStateChange()
 

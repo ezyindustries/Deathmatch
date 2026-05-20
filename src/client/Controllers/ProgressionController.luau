@@ -483,6 +483,10 @@ Remotes.MatchStateChanged.OnClientEvent:Connect(function(payload: any)
 	if not inLobby then
 		overlay.Visible = false
 	end
+	-- User feedback: in-match HUD only shows HP at top-left. Hide the rank
+	-- chip during MATCH so the player has a clean view; rank stays visible
+	-- in LOBBY/VOTING so the player can see their progression while waiting.
+	rankBadge.Visible = inLobby or payload.state == "STARTING"
 end)
 
 ClientSignals.Get("OpenBP").Event:Connect(function()

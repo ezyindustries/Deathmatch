@@ -306,8 +306,11 @@ local function refreshVisible()
 	local canShow = currentState == MatchState.States.MATCH and currentGamemode == "deathmatch"
 	-- TAB modal: only while held + DM match active
 	screenGui.Enabled = canShow and tabHeld
-	-- Mini scoreboard: always on during DM match (hidden in lobby / other modes)
-	miniGui.Enabled = canShow
+	-- Mini scoreboard intentionally DISABLED: ScoreboardController owns the
+	-- top-right card now. Keeping miniGui forever-disabled here avoids the
+	-- "two cards #1-4 side by side" duplicate the user spotted in the
+	-- published build.
+	miniGui.Enabled = false
 end
 
 Remotes.ScoreChanged.OnClientEvent:Connect(function(scoreboard: { any })
