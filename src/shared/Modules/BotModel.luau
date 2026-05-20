@@ -45,25 +45,26 @@ function BotModel.Build(name: string, maxHealth: number, colors: BotColors?): Mo
 	local model = Instance.new("Model")
 	model.Name = name
 
-	-- Pre-position R6 parts relative to the torso BEFORE parenting. Motor6D
-	-- joints don't snap parts together until the model is parented to a
-	-- workspace AND physics runs; if we leave every part at (0,0,0), then a
-	-- PivotTo can land them inside each other and the Humanoid spawn
-	-- behavior gets weird (model "explodes" or HRP slides through the
-	-- floor). Standard R6 offsets — torso is the origin.
+	-- CRITICAL: build parts ANCHORED. When the model gets parented to Workspace
+	-- (before being PivotTo'd to the arena), gravity would otherwise yank the
+	-- unanchored parts at (0,0,0) downward; they fall below FallenPartsDestroyHeight
+	-- (-500 studs by default) within ~2.5s and get auto-destroyed by Roblox,
+	-- leaving a Humanoid + weapon folder ghost (the user-reported bug).
+	-- Caller MUST unanchor after final positioning — see BotModel.UnanchorRig.
 	local hrp = mkPart("HumanoidRootPart", Vector3.new(2, 2, 1), Color3.new(1,1,1), false)
 	hrp.Transparency = 1
 	hrp.CFrame = CFrame.new(0, 0, 0)
+	hrp.Anchored = true
 	hrp.Parent = model
 
-	local torso    = mkPart("Torso", Vector3.new(2, 2, 1), c.torso, true);            torso.CFrame    = CFrame.new(0, 0, 0);    torso.Parent = model
+	local torso    = mkPart("Torso", Vector3.new(2, 2, 1), c.torso, true);            torso.CFrame    = CFrame.new(0, 0, 0);    torso.Anchored = true; torso.Parent = model
 	-- Head slightly enlarged from 1.2 → 1.6 cube to make headshots a bit easier
 	-- (CS-style — head is still the highest-reward target, just less pixel-hunt).
-	local head     = mkPart("Head", Vector3.new(1.6, 1.6, 1.6), c.head, true);        head.CFrame     = CFrame.new(0, 1.8, 0);  head.Parent = model
-	local leftArm  = mkPart("Left Arm",  Vector3.new(1, 2, 1), c.leftArm, true);      leftArm.CFrame  = CFrame.new(-1.5, 0, 0); leftArm.Parent = model
-	local rightArm = mkPart("Right Arm", Vector3.new(1, 2, 1), c.rightArm, true);     rightArm.CFrame = CFrame.new(1.5, 0, 0);  rightArm.Parent = model
-	local leftLeg  = mkPart("Left Leg",  Vector3.new(1, 2, 1), c.leftLeg, true);      leftLeg.CFrame  = CFrame.new(-0.5, -2, 0);leftLeg.Parent = model
-	local rightLeg = mkPart("Right Leg", Vector3.new(1, 2, 1), c.rightLeg, true);     rightLeg.CFrame = CFrame.new(0.5, -2, 0); rightLeg.Parent = model
+	local head     = mkPart("Head", Vector3.new(1.6, 1.6, 1.6), c.head, true);        head.CFrame     = CFrame.new(0, 1.8, 0);  head.Anchored = true; head.Parent = model
+	local leftArm  = mkPart("Left Arm",  Vector3.new(1, 2, 1), c.leftArm, true);      leftArm.CFrame  = CFrame.new(-1.5, 0, 0); leftArm.Anchored = true; leftArm.Parent = model
+	local rightArm = mkPart("Right Arm", Vector3.new(1, 2, 1), c.rightArm, true);     rightArm.CFrame = CFrame.new(1.5, 0, 0);  rightArm.Anchored = true; rightArm.Parent = model
+	local leftLeg  = mkPart("Left Leg",  Vector3.new(1, 2, 1), c.leftLeg, true);      leftLeg.CFrame  = CFrame.new(-0.5, -2, 0);leftLeg.Anchored = true; leftLeg.Parent = model
+	local rightLeg = mkPart("Right Leg", Vector3.new(1, 2, 1), c.rightLeg, true);     rightLeg.CFrame = CFrame.new(0.5, -2, 0); rightLeg.Anchored = true; rightLeg.Parent = model
 
 	local humanoid = Instance.new("Humanoid")
 	humanoid.RigType = Enum.HumanoidRigType.R6
@@ -76,6 +77,13 @@ function BotModel.Build(name: string, maxHealth: number, colors: BotColors?): Mo
 
 	model.PrimaryPart = hrp
 	model:SetAttribute("IsBot", true)
+	-- Force the bot to fully replicate to ALL clients regardless of StreamingEnabled
+	-- + camera/player position. Without this, body parts created on the server
+	-- weren't being streamed to clients on the published game, so players saw
+	-- bot names in the scoreboard but no characters in the arena (the user-
+	-- reported bug). Persistent streaming bypasses Roblox's per-Part visibility
+	-- culling for this Model's descendants.
+	model.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
 
 	local function motor(p0: BasePart, p1: BasePart, c0: CFrame, c1: CFrame, motorName: string)
 		local m = Instance.new("Motor6D")
@@ -101,6 +109,19 @@ function BotModel.Build(name: string, maxHealth: number, colors: BotColors?): Mo
 	humanoid.HealthDisplayDistance = 0
 
 	return model
+end
+
+-- Unanchor all body Parts on the rig. Call AFTER the bot has been parented
+-- to Workspace AND moved to its final spawn (via PivotTo). HRP stays
+-- unanchored so the Humanoid can walk; if any caller anchored it post-build,
+-- this also releases it. Weapon parts (in BotWeapon folder) are managed
+-- separately via EquipRifle/UnequipWeapon and not touched here.
+function BotModel.UnanchorRig(bot: Model)
+	for _, p in bot:GetChildren() do
+		if p:IsA("BasePart") then
+			p.Anchored = false
+		end
+	end
 end
 
 -- =====================================================================

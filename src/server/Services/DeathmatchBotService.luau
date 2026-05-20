@@ -527,18 +527,16 @@ end
 -- was gone. This sequence matches the proven pattern used in
 -- DMRoomService / CasualBotService.
 local function placeBotAt(bot: Model, targetCF: CFrame)
-	local hrp = bot:FindFirstChild("HumanoidRootPart") :: BasePart?
-	if hrp then
-		-- Anchor briefly so the part stays put while we configure the model.
-		-- This is dropped before Parent so physics can drive the Humanoid.
-		hrp.CFrame = targetCF
-	end
+	-- BotModel.Build returns the rig with all body Parts ANCHORED so they
+	-- don't fall during the brief window between Parent and PivotTo. We:
+	--   1. Parent to Workspace (parts are visible but stuck — anchored)
+	--   2. PivotTo target — moves the whole assembly to the arena spawn
+	--   3. Unanchor — physics + Motor6D joints take over for the Humanoid
 	bot.Parent = Workspace
-	-- Final safety: PivotTo after Parent (the proven order). If anything
-	-- nudged the parts during Parent, this re-snaps them as a group.
 	pcall(function()
 		bot:PivotTo(targetCF)
 	end)
+	BotModel.UnanchorRig(bot)
 end
 
 local function spawnBotsToFill()
