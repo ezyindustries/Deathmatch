@@ -29,14 +29,15 @@ screenGui.Parent = playerGui
 -- ---------------------------------------------------------------------------
 local MINI_MAX_ENTRIES = 4
 
--- Layout constants (desktop vs mobile). Exposed via ScoreboardController so
--- KillFeedController (and tests) can compute container offsets that sit
--- directly below the mini scoreboard without overlapping.
-local MINI_ROW_W_DESKTOP = 260
-local MINI_ROW_H_DESKTOP = 36
-local MINI_ROW_W_MOBILE = 180
-local MINI_ROW_H_MOBILE = 26
-local MINI_ROW_GAP_DESKTOP = UITheme.Space.xs -- 4px
+-- Layout constants (desktop vs mobile). Shrunk per user feedback round 6
+-- ("card #1,#2, dst kecilin lagi") — desktop 260x36→210x30, mobile 180x26→140x22.
+-- Exposed via ScoreboardController so KillFeedController (and tests) can compute
+-- container offsets that sit directly below the mini scoreboard without overlap.
+local MINI_ROW_W_DESKTOP = 210
+local MINI_ROW_H_DESKTOP = 30
+local MINI_ROW_W_MOBILE = 140
+local MINI_ROW_H_MOBILE = 22
+local MINI_ROW_GAP_DESKTOP = 3
 local MINI_ROW_GAP_MOBILE = 2
 
 local function isMobileViewport(): boolean
@@ -100,7 +101,8 @@ local function buildMiniRow(rank: number, entry: any, layoutOrder: number): Fram
 	local mobile = isMobileViewport()
 	local rowH = mobile and MINI_ROW_H_MOBILE or MINI_ROW_H_DESKTOP
 	local rowW = mobile and MINI_ROW_W_MOBILE or MINI_ROW_W_DESKTOP
-	local fontSize = mobile and UITheme.FontSize.micro or UITheme.FontSize.caption
+	-- Round 6: both tiers use micro font (11px) to keep the cluster compact.
+	local fontSize = UITheme.FontSize.micro
 	local isLocal = entry.userId == player.UserId
 
 	local row = Instance.new("Frame")
@@ -124,10 +126,10 @@ local function buildMiniRow(rank: number, entry: any, layoutOrder: number): Fram
 		UITheme.corner(stripe, "sm")
 	end
 
-	-- Rank "#1" tag on the left
+	-- Rank "#1" tag on the left (tighter — micro font fits 18/24px easily)
 	local rankLbl = Instance.new("TextLabel")
-	rankLbl.Size = UDim2.new(0, mobile and 22 or 30, 1, 0)
-	rankLbl.Position = UDim2.new(0, mobile and 8 or 10, 0, 0)
+	rankLbl.Size = UDim2.new(0, mobile and 18 or 24, 1, 0)
+	rankLbl.Position = UDim2.new(0, mobile and 6 or 8, 0, 0)
 	rankLbl.BackgroundTransparency = 1
 	rankLbl.Font = UITheme.Font.heading
 	rankLbl.TextSize = fontSize
@@ -136,11 +138,11 @@ local function buildMiniRow(rank: number, entry: any, layoutOrder: number): Fram
 	rankLbl.Text = "#" .. tostring(rank)
 	rankLbl.Parent = row
 
-	-- Name (truncates if too long)
+	-- Name (truncates if too long) — narrower K/D column for the smaller row.
 	local nameLbl = Instance.new("TextLabel")
-	local namePadL = mobile and 32 or 44
-	local kdW = mobile and 56 or 80
-	nameLbl.Size = UDim2.new(1, -(namePadL + kdW + (mobile and 8 or 12)), 1, 0)
+	local namePadL = mobile and 26 or 34
+	local kdW = mobile and 42 or 56
+	nameLbl.Size = UDim2.new(1, -(namePadL + kdW + (mobile and 6 or 10)), 1, 0)
 	nameLbl.Position = UDim2.new(0, namePadL, 0, 0)
 	nameLbl.BackgroundTransparency = 1
 	nameLbl.Font = UITheme.Font.heading
@@ -154,7 +156,7 @@ local function buildMiniRow(rank: number, entry: any, layoutOrder: number): Fram
 	-- K/D on the right
 	local kdLbl = Instance.new("TextLabel")
 	kdLbl.Size = UDim2.new(0, kdW, 1, 0)
-	kdLbl.Position = UDim2.new(1, -(kdW + (mobile and 8 or 12)), 0, 0)
+	kdLbl.Position = UDim2.new(1, -(kdW + (mobile and 6 or 10)), 0, 0)
 	kdLbl.BackgroundTransparency = 1
 	kdLbl.Font = UITheme.Font.mono
 	kdLbl.TextSize = fontSize

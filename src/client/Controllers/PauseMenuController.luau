@@ -18,7 +18,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "PauseMenuHUD"
 screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
+screenGui.IgnoreGuiInset = false  -- modal: let Roblox auto-shift below the topbar (Unibar) so title isnt covered
 -- DisplayOrder must sit above all in-match HUD layers so the modal overlay
 -- covers FIRE / RELOAD / SWAP / RUN buttons. KillFeed sits at 80 and
 -- MatchHUD/WeaponHUD around 0-50, so 200 keeps headroom for other HUDs.
@@ -120,6 +120,27 @@ panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 panel.BackgroundColor3 = BG_BASE
 panel.BorderSizePixel = 0
 panel.Parent = overlay
+
+-- Mobile viewport clamping: keep entire panel within visible area (≤95% vw,
+-- ≤92% vh) on small/portrait screens. Also use UIScale to shrink content
+-- when the natural 580x480 layout would still overflow.
+local panelScale = Instance.new("UIScale")
+panelScale.Scale = 1
+panelScale.Parent = panel
+local function refreshPanelSize()
+	local cam = workspace.CurrentCamera
+	local v = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+	local maxW = v.X * 0.95
+	local maxH = v.Y * 0.92
+	-- Scale to fit if natural panel exceeds bounds
+	local scaleW = math.min(1, maxW / 580)
+	local scaleH = math.min(1, maxH / 480)
+	panelScale.Scale = math.min(scaleW, scaleH)
+end
+refreshPanelSize()
+if workspace.CurrentCamera then
+	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshPanelSize)
+end
 
 local panelCorner = Instance.new("UICorner")
 panelCorner.CornerRadius = UDim.new(0, 10)

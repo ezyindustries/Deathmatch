@@ -1,6 +1,8 @@
 --!strict
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared.Modules.Remotes)
@@ -15,7 +17,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "ShopHUD"
 screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
+screenGui.IgnoreGuiInset = false  -- modal: let Roblox auto-shift below the topbar (Unibar) so title isnt covered
 screenGui.DisplayOrder = 150
 screenGui.Parent = playerGui
 
@@ -38,13 +40,17 @@ local shopCorner = Instance.new("UICorner")
 shopCorner.CornerRadius = UDim.new(0, 10)
 shopCorner.Parent = shopButton
 
--- Shop overlay
-local overlay = Instance.new("Frame")
+-- Shop overlay (TextButton with Modal=true so clicks on the dimmed area don't
+-- pass through to lower-DisplayOrder HUDs, and tapping outside dismisses).
+local overlay = Instance.new("TextButton")
 overlay.Size = UDim2.new(1, 0, 1, 0)
 overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 overlay.BackgroundTransparency = 0.45
 overlay.Visible = false
 overlay.BorderSizePixel = 0
+overlay.AutoButtonColor = false
+overlay.Text = ""
+overlay.Modal = true
 overlay.Parent = screenGui
 
 local panel = Instance.new("Frame")
@@ -53,7 +59,21 @@ panel.AnchorPoint = Vector2.new(0.5, 0.5)
 panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 panel.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
 panel.BorderSizePixel = 0
+panel.Active = true -- absorb clicks so they don't dismiss via outside-tap
 panel.Parent = overlay
+
+-- Mobile viewport clamping: shrink panel to fit ≤95% vw, ≤92% vh
+local function refreshPanelSize()
+	local cam = Workspace.CurrentCamera
+	local v = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+	local w = math.min(720, v.X * 0.95)
+	local h = math.min(520, v.Y * 0.92)
+	panel.Size = UDim2.fromOffset(w, h)
+end
+refreshPanelSize()
+if Workspace.CurrentCamera then
+	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshPanelSize)
+end
 
 local panelCorner = Instance.new("UICorner")
 panelCorner.CornerRadius = UDim.new(0, 14)
@@ -102,6 +122,18 @@ shopButton.MouseButton1Click:Connect(function()
 end)
 closeBtn.MouseButton1Click:Connect(function()
 	overlay.Visible = false
+end)
+-- Tap on the dimmed area outside the panel = close (panel.Active=true above
+-- swallows taps inside it so this only fires for true outside clicks).
+overlay.MouseButton1Click:Connect(function()
+	overlay.Visible = false
+end)
+-- ESC to close on desktop
+UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
+	if processed then return end
+	if overlay.Visible and input.KeyCode == Enum.KeyCode.Escape then
+		overlay.Visible = false
+	end
 end)
 
 -- Scroll container

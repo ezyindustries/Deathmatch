@@ -65,13 +65,17 @@ MatchStateController.stateColorKey = stateColorKey
 -- Slimmer compact MatchHUD: "● MATCH 5:26" — single-word state + timer.
 -- Sized down ~40% from earlier so it sits as a discreet header chip near
 -- the top edge instead of a wide banner.
-local WIDTH_MOBILE = 170
+-- Round 7 (mobile shrink pass): mobile 170x28 -> 140x22, font micro,
+-- so the chip reads as a discreet header at iPhone 7 (666x374). Desktop
+-- retains 210x32 since it has plenty of room.
+local WIDTH_MOBILE = 140
 local WIDTH_DESKTOP = 210
-local HEIGHT_MOBILE = 28
+local HEIGHT_MOBILE = 22
 local HEIGHT_DESKTOP = 32
 local MOBILE_BREAKPOINT = 700
 
-local DOT_SIZE = 8
+local DOT_SIZE_MOBILE = 6
+local DOT_SIZE_DESKTOP = 8
 local URGENT_THRESHOLD = 30  -- timer pulse begins
 local CRITICAL_THRESHOLD = 10 -- stroke pulse begins
 local PULSE_PERIOD = 0.5     -- one half-cycle (color/thickness flip)
@@ -88,15 +92,14 @@ screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
 screenGui.Parent = playerGui
 
--- Container: top-center anchored, width swaps with viewport.
--- NOTE: ScreenGui.IgnoreGuiInset = true means Roblox does NOT auto-shift our
--- HUD below the topbar (chat/headphones icons on mobile). We keep IgnoreGuiInset
--- on so other ScreenGui elements (e.g. bottom-anchored mobile FIRE button) stay
--- pinned to the true viewport edge, and instead manually compensate by adding
--- GuiService:GetGuiInset().Y to this top-anchored container's Y offset below.
+-- Container: TOP-LEFT anchored (user request: card waktu di ATAS darah).
+-- Sits in the top-left group, just above the HealthHUD. Width matches the
+-- HP bar widths exactly so the two cards form a clean stacked column.
+-- IgnoreGuiInset=true → we manually add GuiService:GetGuiInset().Y so we
+-- never sit underneath the Roblox chat/audio icons on mobile.
 local container = Instance.new("Frame")
-container.AnchorPoint = Vector2.new(0.5, 0)
-container.Position = UDim2.new(0.5, 0, 0, UITheme.Space.l)
+container.AnchorPoint = Vector2.new(0, 0)
+container.Position = UDim2.new(0, 12, 0, UITheme.Space.xs)
 container.Size = UDim2.fromOffset(WIDTH_DESKTOP, HEIGHT_DESKTOP)
 container.BackgroundColor3 = UITheme.Color.bgBase
 container.BackgroundTransparency = 0.15
@@ -113,8 +116,8 @@ containerScale.Scale = 1
 containerScale.Parent = container
 
 local padding = Instance.new("UIPadding")
-padding.PaddingLeft = UDim.new(0, UITheme.Space.m)
-padding.PaddingRight = UDim.new(0, UITheme.Space.m)
+padding.PaddingLeft = UDim.new(0, UITheme.Space.s)
+padding.PaddingRight = UDim.new(0, UITheme.Space.s)
 padding.Parent = container
 
 local hList = Instance.new("UIListLayout")
@@ -122,25 +125,27 @@ hList.FillDirection = Enum.FillDirection.Horizontal
 hList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 hList.VerticalAlignment = Enum.VerticalAlignment.Center
 hList.SortOrder = Enum.SortOrder.LayoutOrder
-hList.Padding = UDim.new(0, UITheme.Space.s)
+hList.Padding = UDim.new(0, UITheme.Space.xs)
 hList.Parent = container
 
--- State-color dot (8x8 Frame, full corner radius = circle)
+-- State-color dot (8x8 Frame, full corner radius = circle).
+-- Size driven by refreshSize() — mobile uses 6, desktop 8.
 local dot = Instance.new("Frame")
-dot.Size = UDim2.fromOffset(DOT_SIZE, DOT_SIZE)
+dot.Size = UDim2.fromOffset(DOT_SIZE_DESKTOP, DOT_SIZE_DESKTOP)
 dot.BackgroundColor3 = UITheme.Color.info
 dot.BorderSizePixel = 0
 dot.LayoutOrder = 1
 dot.Parent = container
 UITheme.corner(dot, "full")
 
--- State label — heading font, uppercase
+-- State label — heading font, uppercase. Mobile drops to micro (11) so
+-- "MATCH 5:23" fits inside the 140px chip without elision.
 local stateLabel = Instance.new("TextLabel")
 stateLabel.AutomaticSize = Enum.AutomaticSize.X
 stateLabel.Size = UDim2.new(0, 0, 1, 0)
 stateLabel.BackgroundTransparency = 1
 stateLabel.Font = UITheme.Font.heading
-stateLabel.TextSize = UITheme.FontSize.body
+stateLabel.TextSize = UITheme.FontSize.caption
 stateLabel.TextColor3 = UITheme.Color.textPrimary
 stateLabel.TextXAlignment = Enum.TextXAlignment.Center
 stateLabel.TextYAlignment = Enum.TextYAlignment.Center
@@ -154,7 +159,7 @@ arrowLabel.AutomaticSize = Enum.AutomaticSize.X
 arrowLabel.Size = UDim2.new(0, 0, 1, 0)
 arrowLabel.BackgroundTransparency = 1
 arrowLabel.Font = UITheme.Font.body
-arrowLabel.TextSize = UITheme.FontSize.body
+arrowLabel.TextSize = UITheme.FontSize.caption
 arrowLabel.TextColor3 = UITheme.Color.textTertiary
 arrowLabel.Text = "\u{25B8}"  -- right-pointing small triangle ▸
 arrowLabel.LayoutOrder = 3
@@ -166,7 +171,7 @@ timerLabel.AutomaticSize = Enum.AutomaticSize.X
 timerLabel.Size = UDim2.new(0, 0, 1, 0)
 timerLabel.BackgroundTransparency = 1
 timerLabel.Font = UITheme.Font.mono
-timerLabel.TextSize = UITheme.FontSize.body
+timerLabel.TextSize = UITheme.FontSize.caption
 timerLabel.TextColor3 = UITheme.Color.textPrimary
 timerLabel.Text = "0:00"
 timerLabel.LayoutOrder = 4
@@ -180,8 +185,9 @@ timerLabel.Parent = container
 -- fires when chat opens/closes or the player rotates the device.
 local function refreshTopOffset()
 	local topInset = GuiService:GetGuiInset().Y
-	-- Tight to topbar — user wants the match chip "mepet atas" (snug against top).
-	container.Position = UDim2.new(0.5, 0, 0, topInset + UITheme.Space.xs)
+	-- Top-left, snug against the topbar. HealthHUD shifts below us via its own
+	-- refresh — see HealthController.refreshContainerLayout.
+	container.Position = UDim2.new(0, 12, 0, topInset + UITheme.Space.xs)
 end
 refreshTopOffset()
 GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(refreshTopOffset)
@@ -192,11 +198,19 @@ GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(refreshTopOffset)
 local function refreshSize()
 	local cam = Workspace.CurrentCamera
 	local vw = cam and cam.ViewportSize.X or 1920
-	if vw < MOBILE_BREAKPOINT then
+	local mobile = vw < MOBILE_BREAKPOINT
+	if mobile then
 		container.Size = UDim2.fromOffset(WIDTH_MOBILE, HEIGHT_MOBILE)
 	else
 		container.Size = UDim2.fromOffset(WIDTH_DESKTOP, HEIGHT_DESKTOP)
 	end
+	-- Mobile drops dot + font to keep the chip readable but compact.
+	local dotSize = mobile and DOT_SIZE_MOBILE or DOT_SIZE_DESKTOP
+	dot.Size = UDim2.fromOffset(dotSize, dotSize)
+	local fontSize = mobile and UITheme.FontSize.micro or UITheme.FontSize.caption
+	stateLabel.TextSize = fontSize
+	arrowLabel.TextSize = fontSize
+	timerLabel.TextSize = fontSize
 end
 refreshSize()
 if Workspace.CurrentCamera then

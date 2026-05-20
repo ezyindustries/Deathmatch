@@ -52,6 +52,15 @@ type BotAIState = {
 	targetKey: any?,
 	strafeDir: number,
 	strafeUntilAt: number,
+	-- Evasion (on-hit dodge) state — set by HealthChanged listener,
+	-- consumed by botBehavior to force a strafe-jump perpendicular to attacker.
+	lastHitAt: number?,
+	lastHealth: number,
+	evasionDir: number,
+	evasionUntilAt: number,
+	jumpedOnEvasion: boolean,
+	-- Scan state (look-around when no target visible)
+	nextScanAt: number,
 }
 local botState: { [Model]: BotAIState } = {}
 local lastBehaviorAt: { [Model]: number } = {}
@@ -64,6 +73,12 @@ local function newAIState(): BotAIState
 		targetKey = nil,
 		strafeDir = if math.random() < 0.5 then -1 else 1,
 		strafeUntilAt = 0,
+		lastHitAt = nil,
+		lastHealth = BOT_HEALTH,
+		evasionDir = if math.random() < 0.5 then -1 else 1,
+		evasionUntilAt = 0,
+		jumpedOnEvasion = false,
+		nextScanAt = 0,
 	}
 end
 
@@ -375,6 +390,35 @@ local function botBehavior(bot: Model, state: BotAIState)
 	if not hrp then return end
 	local now = os.clock()
 
+	-- EVASION (on-hit dodge): if we were recently hit, force a hard
+	-- perpendicular strafe + one-shot jump so we visibly dodge incoming fire.
+	-- This runs BEFORE the normal target-tracking branch so it overrides
+	-- the regular strafe pattern for the evasion window (~0.6s).
+	if now < state.evasionUntilAt then
+		hum.WalkSpeed = COMBAT_WALKSPEED
+		-- Try to perpendicular-strafe relative to a known threat direction:
+		-- if we have a target, dodge perpendicular to the line to them.
+		-- Otherwise dodge perpendicular to our current facing.
+		local targetChar, targetHRP = findNearestTarget(bot, hrp.Position)
+		local fwd: Vector3
+		if targetChar and targetHRP then
+			local toTarget = targetHRP.Position - hrp.Position
+			local flat = Vector3.new(toTarget.X, 0, toTarget.Z)
+			fwd = if flat.Magnitude < 0.01 then Vector3.new(1, 0, 0) else flat.Unit
+		else
+			local lookFlat = Vector3.new(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z)
+			fwd = if lookFlat.Magnitude < 0.01 then Vector3.new(1, 0, 0) else lookFlat.Unit
+		end
+		local perp = Vector3.new(-fwd.Z, 0, fwd.X) * state.evasionDir
+		hum:MoveTo(hrp.Position + perp * 8)
+		-- One-shot jump for visible vertical dodge
+		if not state.jumpedOnEvasion then
+			hum.Jump = true
+			state.jumpedOnEvasion = true
+		end
+		return
+	end
+
 	-- Retreat at low HP (run to a random spawn for safety)
 	if hum.Health <= FLEE_HP then
 		hum.WalkSpeed = COMBAT_WALKSPEED
@@ -413,13 +457,35 @@ local function botBehavior(bot: Model, state: BotAIState)
 		return
 	end
 
-	-- No target — wander at normal speed
+	-- No target — wander + SCAN (look-around). The bot picks a spawn point
+	-- that's *far* from its current position so the route forces it to
+	-- traverse the arena and visually sweep its view. Re-rolls on a short
+	-- interval so the bot doesn't sit idle if it reaches the dest.
 	clearTargetLock(state)
 	hum.WalkSpeed = BOT_WALK_SPEED
 	local spawns = getArenaSpawnPoints()
 	if #spawns == 0 then return end
-	local target = spawns[math.random(#spawns)]
-	hum:MoveTo(target.Position + Vector3.new(0, 3, 0))
+	if now >= state.nextScanAt then
+		-- Pick a spawn far from current position (top-half of distance distribution).
+		-- This counts as the bot's "scan" sweep — it rotates as it pathfinds.
+		local farthest: BasePart? = nil
+		local farthestDist = -1
+		for _, sp in spawns do
+			local d = (sp.Position - hrp.Position).Magnitude
+			if d > farthestDist then
+				farthestDist = d
+				farthest = sp
+			end
+		end
+		local pick: BasePart
+		if farthest and math.random() < 0.65 then
+			pick = farthest
+		else
+			pick = spawns[math.random(#spawns)]
+		end
+		hum:MoveTo(pick.Position + Vector3.new(0, 3, 0))
+		state.nextScanAt = now + 1.2 + math.random() * 1.3
+	end
 end
 
 -- Forward-declared so setupBot can reference it
@@ -476,13 +542,28 @@ rebuildBot = function(oldBot: Model)
 		warn(string.format("[DeathmatchBot] rebuildBot: EquipRifle failed for %s: %s", name, tostring(muzzleOrErr)))
 	end
 	BotAnimator.Register(bot)
-	-- Re-hook death so this fresh bot also respawns on its next death
+	-- Re-hook death + HealthChanged (evasion) so this fresh bot behaves
+	-- exactly like a newly spawned one on its next damage / death.
 	local hum = bot:FindFirstChildOfClass("Humanoid")
 	if hum then
 		hum.Died:Connect(function()
 			task.delay(BOT_RESPAWN_DELAY, function()
 				if bot.Parent then rebuildBot(bot) end
 			end)
+		end)
+		local st = botState[bot]
+		if st then st.lastHealth = hum.Health end
+		hum.HealthChanged:Connect(function(newHealth)
+			local s = botState[bot]
+			if not s then return end
+			if newHealth < s.lastHealth - 0.01 then
+				local now = os.clock()
+				s.lastHitAt = now
+				s.evasionDir = if math.random() < 0.5 then -1 else 1
+				s.evasionUntilAt = now + 0.6
+				s.jumpedOnEvasion = false
+			end
+			s.lastHealth = newHealth
 		end)
 	end
 	print(string.format(
@@ -500,6 +581,23 @@ local function setupBot(bot: Model)
 		task.delay(BOT_RESPAWN_DELAY, function()
 			if bot.Parent then rebuildBot(bot) end
 		end)
+	end)
+	-- Evasion trigger: any HP drop arms a ~0.6s strafe-jump window.
+	-- We ignore equal-or-greater health changes (healing / regen) and
+	-- the initial MaxHealth-from-spawn ramp by tracking lastHealth.
+	local state = botState[bot]
+	if state then state.lastHealth = hum.Health end
+	hum.HealthChanged:Connect(function(newHealth)
+		local st = botState[bot]
+		if not st then return end
+		if newHealth < st.lastHealth - 0.01 then
+			local now = os.clock()
+			st.lastHitAt = now
+			st.evasionDir = if math.random() < 0.5 then -1 else 1
+			st.evasionUntilAt = now + 0.6
+			st.jumpedOnEvasion = false
+		end
+		st.lastHealth = newHealth
 	end)
 end
 

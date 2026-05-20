@@ -19,7 +19,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "GachaHUD"
 screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
+screenGui.IgnoreGuiInset = false  -- modal: let Roblox auto-shift below the topbar (Unibar) so title isnt covered
 screenGui.DisplayOrder = 110 -- above MainMenu (100) so GACHA button visible from main menu
 screenGui.Parent = playerGui
 
@@ -120,6 +120,11 @@ local function pushHistory(_tier: string) end
 -- =========================================================
 local overlay = Instance.new("Frame")
 overlay.Size = UDim2.new(1, 0, 1, 0)
+-- Anchor-center so the UIScale below shrinks the reveal scene around the
+-- viewport center on mobile, instead of dragging it toward the top-left
+-- corner of the screen (the prior bug when overlayScale.Parent = overlay).
+overlay.AnchorPoint = Vector2.new(0.5, 0.5)
+overlay.Position = UDim2.new(0.5, 0, 0.5, 0)
 overlay.BackgroundColor3 = Color3.fromRGB(8, 10, 18)
 overlay.BackgroundTransparency = 1
 overlay.BorderSizePixel = 0
@@ -134,6 +139,28 @@ overlayGrad.Color = ColorSequence.new({
 overlayGrad.Rotation = 90
 overlayGrad.Parent = overlay
 
+-- Mobile viewport scaling — the slot strip (920w) + reveal card + close button
+-- assume a roughly desktop-sized canvas. On narrow viewports (<700px / iPhone)
+-- we shrink the whole reveal scene with a UIScale so close/skip buttons stay
+-- visible and the slot strip vignette doesn't clip the center indicator.
+local overlayScale = Instance.new("UIScale")
+overlayScale.Scale = 1
+overlayScale.Parent = overlay
+local function refreshOverlayScale()
+	local cam = workspace.CurrentCamera
+	local v = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+	-- Scale so 1000px logical width (a bit wider than VIEWPORT_W=920 for breathing
+	-- room) fits within 95% of viewport width, and 540px logical height fits
+	-- within 92% of viewport height. Pick the more restrictive.
+	local sx = math.min(1, (v.X * 0.95) / 1000)
+	local sy = math.min(1, (v.Y * 0.92) / 540)
+	overlayScale.Scale = math.min(sx, sy)
+end
+refreshOverlayScale()
+if workspace.CurrentCamera then
+	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshOverlayScale)
+end
+
 local headerLabel = Instance.new("TextLabel")
 headerLabel.Size = UDim2.new(0, 600, 0, 50)
 headerLabel.AnchorPoint = Vector2.new(0.5, 0)
@@ -147,7 +174,10 @@ headerLabel.TextStrokeTransparency = 0.4
 headerLabel.Text = "🎰 OPENING CASE..."
 headerLabel.Parent = overlay
 
--- Slot strip viewport (clipping mask) — bigger + cinematic dark theme
+-- Slot strip viewport (clipping mask) — bigger + cinematic dark theme.
+-- Note: VIEWPORT_W is the *logical* width used for animation math; an overlay
+-- UIScale shrinks the entire reveal scene to fit on small viewports so the
+-- close button, slot strip, and reveal card all stay onscreen.
 local VIEWPORT_W = 920
 local VIEWPORT_H = 200
 local viewport = Instance.new("Frame")

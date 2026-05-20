@@ -120,17 +120,28 @@ screenGui.DisplayOrder = 40
 screenGui.Parent = playerGui
 
 -- ----------------------------------------------------------------------------
--- Visual constants. Sizes tuned for 96px arrow + 140px halo per DESIGN_SYSTEM.
+-- Visual constants. Desktop: 96px arrow + 140px halo per DESIGN_SYSTEM.
+-- Mobile (vw < 700) shrinks to 56px arrow + 84px halo so the indicator stays
+-- peripheral on a 374h viewport without crowding the crosshair.
 -- ----------------------------------------------------------------------------
-local ARROW_SIZE = 96
-local HALO_SIZE = 140
-local ARROW_TEXT_SIZE = 56
+local ARROW_SIZE_DESKTOP = 96
+local HALO_SIZE_DESKTOP = 140
+local ARROW_TEXT_SIZE_DESKTOP = 56
+local ARROW_SIZE_MOBILE = 56
+local HALO_SIZE_MOBILE = 84
+local ARROW_TEXT_SIZE_MOBILE = 32
 local EDGE_OFFSET = 0.42       -- of min(viewport width, height); peripheral
 local LIFETIME = 1.2           -- seconds before the arrow auto-destroys
 local ENTER_DUR = 0.16
 local EXIT_DUR = 0.4
 local HALO_ZINDEX = 1          -- behind arrow
 local ARROW_ZINDEX = 2
+
+local function isMobileViewport(): boolean
+    local cam = Workspace.CurrentCamera
+    local vw = cam and cam.ViewportSize.X or 1920
+    return vw < 700
+end
 
 type IndicatorEntry = {
     arrow: TextLabel,
@@ -150,6 +161,10 @@ local activeIndicators: { IndicatorEntry } = {}
 -- Builders
 -- ----------------------------------------------------------------------------
 local function makeArrow(damageType: string?): (TextLabel, Frame, UIScale)
+    local mobile = isMobileViewport()
+    local ARROW_SIZE = mobile and ARROW_SIZE_MOBILE or ARROW_SIZE_DESKTOP
+    local HALO_SIZE = mobile and HALO_SIZE_MOBILE or HALO_SIZE_DESKTOP
+    local ARROW_TEXT_SIZE = mobile and ARROW_TEXT_SIZE_MOBILE or ARROW_TEXT_SIZE_DESKTOP
     -- Halo (rendered FIRST so it sits visually behind via ZIndex anyway)
     local halo = Instance.new("Frame")
     halo.Name = "DamageHalo"

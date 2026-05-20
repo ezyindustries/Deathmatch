@@ -37,9 +37,10 @@ local RIGHT_COL_RESERVE = 56
 local SCOREBOARD_GAP = UITheme.Space.m -- 12
 
 -- Fallback scoreboard heights if the ScoreboardController helper is unavailable
--- (e.g. test environments). These match ScoreboardController.luau's constants.
-local FALLBACK_MINI_HEIGHT_DESKTOP = 4 * 36 + 3 * UITheme.Space.xs -- 156
-local FALLBACK_MINI_HEIGHT_MOBILE = 4 * 26 + 3 * 2                  -- 110
+-- (e.g. test environments). These match ScoreboardController.luau's constants
+-- (round 6: rows shrunk to 30/22 with gap 3/2).
+local FALLBACK_MINI_HEIGHT_DESKTOP = 4 * 30 + 3 * 3 -- 129
+local FALLBACK_MINI_HEIGHT_MOBILE = 4 * 22 + 3 * 2  -- 94
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -82,15 +83,18 @@ local function getEntryHeight(): number
 end
 
 -- Responsive container position + width.
--- Width: narrower on mobile to stay clear of right-edge HUD (FIRE + ADS column).
--- Y position: ALWAYS sits BELOW the mini scoreboard (topInset + scoreboardH + gap)
--- so the top-right cluster reads as a single column (scoreboard cards on top,
--- KillFeed entries underneath) instead of two floating elements that overlap.
--- X position: shift LEFT past FIRE button + right-edge column on mobile.
+-- HIDE-ON-SMALL-SCREEN: User feedback ("notifikasi popup yang muncul di kanan
+-- itu dihide aja" for small screens). KillFeed entries crowd the right-edge
+-- of phone screens where the FIRE/ADS/RELOAD/SWAP buttons live, so on any
+-- viewport narrower than 700px we disable the ScreenGui entirely.
 local function refreshContainerSize()
 	local cam = Workspace.CurrentCamera
 	local vw = cam and cam.ViewportSize.X or 1920
 	local mobileViewport = vw < 700
+	screenGui.Enabled = not mobileViewport
+	if mobileViewport then
+		return -- nothing more to compute when hidden
+	end
 	local w = mobileViewport and (ENTRY_MAX_W_MOBILE + 8) or (ENTRY_MAX_W_DESKTOP + 8)
 	local maxEntries = mobileViewport and MAX_ENTRIES_MOBILE or MAX_ENTRIES_DESKTOP
 	local entryH = mobileViewport and ENTRY_HEIGHT_MOBILE or ENTRY_HEIGHT_DESKTOP

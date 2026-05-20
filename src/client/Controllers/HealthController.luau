@@ -109,23 +109,29 @@ container.Parent = screenGui
 UITheme.corner(container, "md")
 local containerStroke = UITheme.stroke(container, "borderSubtle", 1.5, 0.4)
 
--- Responsive sizing: mobile 180x40, tablet 220x48, desktop 260x56. We also
+-- Responsive sizing: mobile 150x28, tablet 220x48, desktop 260x56. We also
 -- recompute the Y offset whenever the topbar inset changes (mobile rotation,
 -- Studio play-mode toolbar appearing, etc.).
+-- Sits BELOW MatchStateController's MatchHUD card (top-left column). The Y
+-- offset reserves vertical room for MatchHUD (22 mobile / 32 desktop) plus
+-- two Space.xs (4px each) gaps — keep in sync with MatchStateController.
+-- Round 7 (mobile shrink): mobile shrunk 180x40 -> 150x28 per user request
+-- "perkecil semua card info, health bar". MatchHUD height tracked accordingly.
 local function refreshContainerLayout()
 	local cam = Workspace.CurrentCamera
 	local vw = cam and cam.ViewportSize.X or 1920
-	local w, h
+	local w, h, matchHudH
 	if vw < 700 then
-		w, h = 180, 40
+		w, h, matchHudH = 150, 28, 22
 	elseif vw < 1100 then
-		w, h = 220, 48
+		w, h, matchHudH = 220, 48, 32
 	else
-		w, h = 260, 56
+		w, h, matchHudH = 260, 56, 32
 	end
 	container.Size = UDim2.new(0, w, 0, h)
 	local topInset = GuiService:GetGuiInset().Y
-	container.Position = UDim2.new(0, 12, 0, topInset + UITheme.Space.l)
+	-- topInset + xs(4) (MatchHUD's top gap) + matchHudH + xs(4) (gap between cards)
+	container.Position = UDim2.new(0, 12, 0, topInset + UITheme.Space.xs + matchHudH + UITheme.Space.xs)
 end
 refreshContainerLayout()
 GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(refreshContainerLayout)
@@ -141,6 +147,8 @@ containerScale.Parent = container
 -- ============================================================================
 -- Inline layout: [ ♥ 100   ████████ ] — heart, HP value, then bar filling
 -- the rest of the row. Compact single-row design for the top-left HUD group.
+-- Round 7: mobile shrink — heart 14, HP label 24, bar height 6, font caption,
+-- so heart + number + bar all stay readable inside the 150x28 mobile chip.
 -- ============================================================================
 local INNER_PAD = UITheme.Space.s -- 8px left/right padding inside container
 
@@ -171,14 +179,17 @@ hpLabel.Parent = container
 
 -- ============================================================================
 -- Bar (track + fill). Fills the right portion of the container row.
+-- BAR_LEFT now driven by the labels' widths; refreshContainerLayout() rewires
+-- the inner widths/sizes on viewport changes so the bar shrinks cleanly on
+-- mobile without leaving an oversized empty gap to the right of the value.
 -- ============================================================================
-local BAR_LEFT = INNER_PAD + 20 + 32 + UITheme.Space.s -- past heart + value + gap
-local BAR_HEIGHT = UITheme.Space.s + 2 -- 10px
+local BAR_HEIGHT_DESKTOP = UITheme.Space.s + 2 -- 10px
+local BAR_HEIGHT_MOBILE = UITheme.Space.xs + 2 -- 6px
 
 local barBg = Instance.new("Frame")
-barBg.Size = UDim2.new(1, -(BAR_LEFT + INNER_PAD), 0, BAR_HEIGHT)
 barBg.AnchorPoint = Vector2.new(0, 0.5)
-barBg.Position = UDim2.new(0, BAR_LEFT, 0.5, 0)
+barBg.Position = UDim2.new(0, INNER_PAD + 20 + 32 + UITheme.Space.s, 0.5, 0)
+barBg.Size = UDim2.new(1, -(INNER_PAD + 20 + 32 + UITheme.Space.s + INNER_PAD), 0, BAR_HEIGHT_DESKTOP)
 barBg.BackgroundColor3 = UITheme.Color.bgPressed
 barBg.BorderSizePixel = 0
 barBg.Parent = container
@@ -192,6 +203,40 @@ barFill.BorderSizePixel = 0
 barFill.Parent = barBg
 
 UITheme.corner(barFill, "full")
+
+-- Recompute the heart/value/bar inner geometry whenever the container resizes.
+-- We re-hook this into refreshContainerLayout below so both fire together.
+local function applyInnerSizing(mobile: boolean)
+	local heartW = mobile and 14 or 18
+	local hpW = mobile and 24 or 32
+	local fontSize = mobile and UITheme.FontSize.caption or UITheme.FontSize.body
+	local barH = mobile and BAR_HEIGHT_MOBILE or BAR_HEIGHT_DESKTOP
+	-- INNER_PAD on mobile uses xs (4) to give the bar more horizontal runway.
+	local pad = mobile and UITheme.Space.xs or INNER_PAD
+	local gap = mobile and UITheme.Space.xs or UITheme.Space.s
+	heartIcon.Size = UDim2.new(0, heartW, 1, 0)
+	heartIcon.Position = UDim2.new(0, pad, 0, 0)
+	heartIcon.TextSize = fontSize
+	hpLabel.Size = UDim2.new(0, hpW, 1, 0)
+	hpLabel.Position = UDim2.new(0, pad + heartW + gap, 0, 0)
+	hpLabel.TextSize = fontSize
+	local barLeft = pad + heartW + gap + hpW + gap
+	barBg.Position = UDim2.new(0, barLeft, 0.5, 0)
+	barBg.Size = UDim2.new(1, -(barLeft + pad), 0, barH)
+end
+
+-- Wire inner sizing to viewport changes. We mirror the same breakpoint used
+-- by refreshContainerLayout above so heart/HP/bar stay in lockstep with the
+-- container width.
+local function refreshInner()
+	local cam = Workspace.CurrentCamera
+	local vw = cam and cam.ViewportSize.X or 1920
+	applyInnerSizing(vw < 700)
+end
+refreshInner()
+if Workspace.CurrentCamera then
+	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshInner)
+end
 
 -- ============================================================================
 -- Edge-only vignette: 4 thin strips at viewport edges. Each strip uses a

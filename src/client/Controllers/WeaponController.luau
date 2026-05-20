@@ -509,16 +509,18 @@ feedbackLabel.Parent = screenGui
 -- left (anchor stays bottom-right, just bigger offset) so the jump button has
 -- a clear ~80px corner. Compact mode triggers on TouchEnabled + width<700
 -- (Studio Device Emulator keeps MouseEnabled=true so we use width check).
+-- Round 7 (mobile shrink): chips 100->80, panel height 48->32. Keeps the
+-- hotbar discreet at iPhone 7 instead of dominating the bottom row.
 local _slotCam = workspace.CurrentCamera
 local SLOT_IS_COMPACT = UserInputService.TouchEnabled and _slotCam and _slotCam.ViewportSize.X < 700
 -- Chip dimensions and panel layout vary by viewport mode.
-local CHIP_W = SLOT_IS_COMPACT and 100 or 130
-local CHIP_PAD_X = 8        -- left padding for first chip
-local CHIP_GAP = SLOT_IS_COMPACT and 8 or 4 -- desktop preserves original 4px gap (orig: chip2 x=142 = 8+130+4)
+local CHIP_W = SLOT_IS_COMPACT and 80 or 130
+local CHIP_PAD_X = SLOT_IS_COMPACT and 6 or 8 -- left padding for first chip
+local CHIP_GAP = SLOT_IS_COMPACT and 6 or 4 -- desktop preserves original 4px gap (orig: chip2 x=142 = 8+130+4)
 -- Total panel width: 2 chips + gap + side padding. Desktop = 8+130+4+130+8 = 280
--- (matches original). Compact = 8+100+8+100+8 = 224 (down from 280).
+-- (matches original). Compact = 6+80+6+80+6 = 178 (down from 224).
 local SLOT_PANEL_W = CHIP_PAD_X * 2 + CHIP_W * 2 + CHIP_GAP
-local SLOT_PANEL_H = SLOT_IS_COMPACT and 48 or 64
+local SLOT_PANEL_H = SLOT_IS_COMPACT and 32 or 64
 -- Mobile: keep bottom-right anchor but shift left by 80px so Roblox's default
 -- jump button at the corner is unobstructed.
 local SLOT_PANEL_RIGHT_INSET = SLOT_IS_COMPACT and 80 or 20
@@ -538,8 +540,17 @@ slotCorner.CornerRadius = UDim.new(0, 10)
 slotCorner.Parent = slotPanel
 
 local function makeSlotChip(key: string, position: UDim2, accentColor: Color3): (TextButton, TextLabel, TextLabel)
+	-- Compact mode dimensions trade chip vertical padding for a tighter panel
+	-- so the 32-tall bottom row stays readable without dominating mobile.
+	local sideInset = SLOT_IS_COMPACT and 8 or 16
+	local keyBox = SLOT_IS_COMPACT and 20 or 28
+	local keyPad = SLOT_IS_COMPACT and 4 or 8
+	local keyFont = SLOT_IS_COMPACT and 11 or 16
+	local nameFont = SLOT_IS_COMPACT and 11 or 13
+	local namePadL = keyPad + keyBox + (SLOT_IS_COMPACT and 4 or 6)
+
 	local chip = Instance.new("TextButton")
-	chip.Size = UDim2.new(0, CHIP_W, 1, -16)
+	chip.Size = UDim2.new(0, CHIP_W, 1, -sideInset)
 	chip.Position = position
 	chip.BackgroundColor3 = Color3.fromRGB(28, 32, 44)
 	chip.BorderSizePixel = 0
@@ -558,12 +569,12 @@ local function makeSlotChip(key: string, position: UDim2, accentColor: Color3): 
 	chipStroke.Parent = chip
 
 	local keyLabel = Instance.new("TextLabel")
-	keyLabel.Size = UDim2.new(0, 28, 0, 28)
-	keyLabel.Position = UDim2.new(0, 8, 0.5, -14)
+	keyLabel.Size = UDim2.new(0, keyBox, 0, keyBox)
+	keyLabel.Position = UDim2.new(0, keyPad, 0.5, -keyBox / 2)
 	keyLabel.BackgroundColor3 = accentColor
 	keyLabel.BorderSizePixel = 0
 	keyLabel.Font = Enum.Font.GothamBlack
-	keyLabel.TextSize = 16
+	keyLabel.TextSize = keyFont
 	keyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 	keyLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 	keyLabel.TextStrokeTransparency = 0.5
@@ -574,22 +585,22 @@ local function makeSlotChip(key: string, position: UDim2, accentColor: Color3): 
 	keyCorner.Parent = keyLabel
 
 	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Size = UDim2.new(1, -48, 1, 0)
-	nameLabel.Position = UDim2.new(0, 42, 0, 0)
+	nameLabel.Size = UDim2.new(1, -(namePadL + (SLOT_IS_COMPACT and 4 or 6)), 1, 0)
+	nameLabel.Position = UDim2.new(0, namePadL, 0, 0)
 	nameLabel.BackgroundTransparency = 1
 	nameLabel.Font = Enum.Font.GothamBold
-	nameLabel.TextSize = 13
+	nameLabel.TextSize = nameFont
 	nameLabel.TextColor3 = Color3.fromRGB(220, 225, 240)
 	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	nameLabel.Text = "—"
 	nameLabel.Parent = chip
 
 	return chip, keyLabel, nameLabel
 end
 
--- Chip Y=8 with size (1, -16) yields top+bottom 8px padding inside the panel
--- (works for both 48h compact and 64h desktop panels — chip stays centered).
-local CHIP_PAD_Y = 8
+-- Chip Y inset: compact panel = 4px top+bottom, desktop = 8.
+local CHIP_PAD_Y = SLOT_IS_COMPACT and 4 or 8
 local primaryChip, _, primaryLabel = makeSlotChip("1", UDim2.new(0, CHIP_PAD_X, 0, CHIP_PAD_Y), Color3.fromRGB(220, 100, 60))
 local secondaryChip, _, secondaryLabel = makeSlotChip("2", UDim2.new(0, CHIP_PAD_X + CHIP_W + CHIP_GAP, 0, CHIP_PAD_Y), Color3.fromRGB(60, 140, 220))
 
@@ -621,15 +632,16 @@ ammoPanel.Parent = screenGui
 -- Was previously above FIRE which overlapped KillFeed on short viewports.
 -- Detection by viewport width (Studio Device Emulator keeps MouseEnabled=true
 -- so the TouchEnabled+!MouseEnabled idiom is unreliable for it).
+-- Round 7 mobile shrink: FIRE shrunk to 64x64 anchored at (1,-88,1,-130) so
+-- ammo (100x32) right edge sits at -88-64-12 = -164 from right with a 12px
+-- gap, vertically centered with FIRE.
 do
 	local cam = workspace.CurrentCamera
 	local isCompact = UserInputService.TouchEnabled and cam and cam.ViewportSize.X < 700
 	if isCompact then
-		-- FIRE is 72x72 at (1,-88,1,-130). Place ammo LEFT of FIRE with a 16
-		-- gap: ammo right edge at -88-72-16 = -176 from right.
 		ammoPanel.Size = UDim2.new(0, 100, 0, 32)
 		ammoPanel.AnchorPoint = Vector2.new(1, 0.5)
-		ammoPanel.Position = UDim2.new(1, -176, 1, -166) -- vertically centered with FIRE
+		ammoPanel.Position = UDim2.new(1, -164, 1, -162) -- vertically centered with FIRE
 	end
 end
 
@@ -637,12 +649,17 @@ local ammoCorner = Instance.new("UICorner")
 ammoCorner.CornerRadius = UDim.new(0, 10)
 ammoCorner.Parent = ammoPanel
 
+-- Round 7 mobile shrink: number font drops 22 -> 16 to fit the 32-tall mobile
+-- panel cleanly without overlapping the "/ N" reserve text below.
+local ammoIsCompact = UserInputService.TouchEnabled
+	and workspace.CurrentCamera
+	and workspace.CurrentCamera.ViewportSize.X < 700
 local ammoNumber = Instance.new("TextLabel")
 ammoNumber.Size = UDim2.new(0.55, 0, 1, 0)
 ammoNumber.Position = UDim2.new(0, 0, 0, 0)
 ammoNumber.BackgroundTransparency = 1
 ammoNumber.Font = Enum.Font.GothamBlack
-ammoNumber.TextSize = 22
+ammoNumber.TextSize = ammoIsCompact and 16 or 22
 ammoNumber.TextColor3 = Color3.fromRGB(255, 255, 255)
 ammoNumber.TextXAlignment = Enum.TextXAlignment.Right
 ammoNumber.Text = "0"
@@ -653,7 +670,7 @@ ammoMag.Size = UDim2.new(0.4, -10, 1, 0)
 ammoMag.Position = UDim2.new(0.55, 4, 0, 0)
 ammoMag.BackgroundTransparency = 1
 ammoMag.Font = Enum.Font.GothamMedium
-ammoMag.TextSize = 13
+ammoMag.TextSize = ammoIsCompact and 11 or 13
 ammoMag.TextColor3 = Color3.fromRGB(170, 175, 195)
 ammoMag.TextXAlignment = Enum.TextXAlignment.Left
 ammoMag.TextYAlignment = Enum.TextYAlignment.Bottom
@@ -1527,27 +1544,28 @@ if isTouch then
 	-- dragging from the button rotates the camera (aim while firing).
 	-- Touching anywhere else on screen → camera rotate only, NO auto-fire.
 	-- Compact mobile HUD (per user feedback "perkecil semua"):
-	--   FIRE 72×72 anchored bottom-right at (1, -88, 1, -130) — sits ABOVE
-	--   the default Roblox jump button (~80px corner reservation) and to the
-	--   LEFT of the right-edge ADS/RELOAD/SWAP column.
+	--   Round 7 shrink: FIRE 72->64 with thinner outline, ADS/RLD/SWP col
+	--   38x128, RUN 38x38 — keeps the bottom-right cluster discreet at
+	--   iPhone 7 (666x374) without sacrificing tap targets.
+	local FIRE_SIZE = 64
 	local fireDefaultPos = UDim2.new(1, -88, 1, -130)
 	local fireBtn = Instance.new("Frame")
 	fireBtn.Name = "MobileFireBtn"
 	fireBtn.AnchorPoint = Vector2.new(1, 1)
 	fireBtn.Position = fireDefaultPos
-	fireBtn.Size = UDim2.new(0, 72, 0, 72)
+	fireBtn.Size = UDim2.new(0, FIRE_SIZE, 0, FIRE_SIZE)
 	fireBtn.BackgroundColor3 = Color3.fromRGB(220, 70, 70)
 	fireBtn.BackgroundTransparency = 0.35
 	fireBtn.BorderSizePixel = 0
 	fireBtn.Active = false -- crucial: lets the touch also drive camera rotation
 	fireBtn.Parent = screenGui
 	local fireBtnCorner = Instance.new("UICorner"); fireBtnCorner.CornerRadius = UDim.new(1, 0); fireBtnCorner.Parent = fireBtn
-	local fireBtnStroke = Instance.new("UIStroke"); fireBtnStroke.Color = Color3.fromRGB(255, 255, 255); fireBtnStroke.Thickness = 2; fireBtnStroke.Transparency = 0.4; fireBtnStroke.Parent = fireBtn
+	local fireBtnStroke = Instance.new("UIStroke"); fireBtnStroke.Color = Color3.fromRGB(255, 255, 255); fireBtnStroke.Thickness = 1.5; fireBtnStroke.Transparency = 0.5; fireBtnStroke.Parent = fireBtn
 	local fireBtnLbl = Instance.new("TextLabel")
 	fireBtnLbl.Size = UDim2.new(1, 0, 1, 0)
 	fireBtnLbl.BackgroundTransparency = 1
 	fireBtnLbl.Font = Enum.Font.GothamBold
-	fireBtnLbl.TextSize = 12
+	fireBtnLbl.TextSize = 11
 	fireBtnLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
 	fireBtnLbl.Text = "FIRE"
 	fireBtnLbl.Parent = fireBtn
@@ -1578,14 +1596,29 @@ if isTouch then
 	registerHudButton(fireBtn, "hudFire", fireDefaultPos)
 
 	-- ===== RIGHT-EDGE BUTTON COLUMN (compact) =====
-	-- 3 small dark buttons (44×44 each), 8px gaps, stacked at right edge
-	-- centered vertically. To the right of FIRE; doesn't overlap FIRE
-	-- because FIRE x ends at -88 and column x starts at -56.
+	-- 3 small dark buttons (38×38 each), 7px gaps, stacked at right edge.
+	-- Round 7 mobile shrink: column shrunk from 44×148 to 38×128. Anchor is
+	-- (1, 0) on mobile so the column sits BELOW the top-right scoreboard
+	-- cluster instead of vertically centered (the old (1, 0.5) anchor caused
+	-- the ADS button to overlap row 4 of the scoreboard at 666x374).
+	-- Scoreboard mobile total height: 4*22+3*2 = 94, plus topInset (~36) +
+	-- top offset Space.l (16) ≈ 146. Add Space.m (12) gap → top = 158.
+	local _btnColCam = workspace.CurrentCamera
+	local _isMobile = _btnColCam and _btnColCam.ViewportSize.X < 700
+	local COL_BTN_H = _isMobile and 38 or 44
+	local COL_BTN_GAP = _isMobile and 7 or 8
+	local COL_W = _isMobile and 38 or 44
+	local COL_H = COL_BTN_H * 3 + COL_BTN_GAP * 2 -- mobile=128, desktop=148
 	local btnCol = Instance.new("Frame")
 	btnCol.Name = "MobileBtnCol"
-	btnCol.AnchorPoint = Vector2.new(1, 0.5)
-	btnCol.Position = UDim2.new(1, -12, 0.5, 0)
-	btnCol.Size = UDim2.new(0, 44, 0, 148) -- 3×44 + 2×8 = 148
+	if _isMobile then
+		btnCol.AnchorPoint = Vector2.new(1, 0)
+		btnCol.Position = UDim2.new(1, -12, 0, 158)
+	else
+		btnCol.AnchorPoint = Vector2.new(1, 0.5)
+		btnCol.Position = UDim2.new(1, -12, 0.5, 0)
+	end
+	btnCol.Size = UDim2.new(0, COL_W, 0, COL_H)
 	btnCol.BackgroundTransparency = 1
 	btnCol.Parent = screenGui
 
@@ -1595,7 +1628,7 @@ if isTouch then
 		b.BorderSizePixel = 0
 		b.AutoButtonColor = false
 		b.Font = Enum.Font.GothamBold
-		b.TextSize = 10
+		b.TextSize = _isMobile and 9 or 10
 		b.TextColor3 = Color3.fromRGB(220, 225, 235)
 		local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 8); c.Parent = b
 		local s = Instance.new("UIStroke"); s.Color = Color3.fromRGB(90, 100, 120); s.Thickness = 1; s.Transparency = 0.5; s.Parent = b
@@ -1603,7 +1636,7 @@ if isTouch then
 
 	-- ADS button (top of column) — hold to scope
 	local adsBtn = Instance.new("TextButton")
-	adsBtn.Size = UDim2.new(1, 0, 0, 44)
+	adsBtn.Size = UDim2.new(1, 0, 0, COL_BTN_H)
 	adsBtn.Position = UDim2.new(0, 0, 0, 0)
 	adsBtn.Text = "ADS"
 	adsBtn.Parent = btnCol
@@ -1613,8 +1646,8 @@ if isTouch then
 
 	-- RELOAD button
 	local reloadBtn = Instance.new("TextButton")
-	reloadBtn.Size = UDim2.new(1, 0, 0, 44)
-	reloadBtn.Position = UDim2.new(0, 0, 0, 52) -- 44 + 8 gap
+	reloadBtn.Size = UDim2.new(1, 0, 0, COL_BTN_H)
+	reloadBtn.Position = UDim2.new(0, 0, 0, COL_BTN_H + COL_BTN_GAP)
 	reloadBtn.Text = "RELOAD"
 	reloadBtn.Parent = btnCol
 	styleBtn(reloadBtn)
@@ -1622,8 +1655,8 @@ if isTouch then
 
 	-- Weapon switch (slot cycle)
 	local switchBtn = Instance.new("TextButton")
-	switchBtn.Size = UDim2.new(1, 0, 0, 44)
-	switchBtn.Position = UDim2.new(0, 0, 0, 104) -- 52 + 44 + 8
+	switchBtn.Size = UDim2.new(1, 0, 0, COL_BTN_H)
+	switchBtn.Position = UDim2.new(0, 0, 0, (COL_BTN_H + COL_BTN_GAP) * 2)
 	switchBtn.Text = "SWAP"
 	switchBtn.Parent = btnCol
 	styleBtn(switchBtn)
@@ -1636,13 +1669,13 @@ if isTouch then
 		Remotes.SwitchWeapon:FireServer(nextSlot)
 	end)
 
-	-- ===== SPRINT TOGGLE (bottom-LEFT, ABOVE HP bar) =====
-	-- HP bar (HealthController) occupies x:24-284 y:-136..-80 at bottom-left,
-	-- so we stack RUN above it at y:-204..-160 (24px gap). Still clears the
-	-- BRONZE rank chip at top because phones are tall enough.
+	-- ===== SPRINT TOGGLE (bottom-LEFT, ABOVE the on-screen joystick) =====
+	-- Round 7 mobile shrink: 44->38, font 9. Position keeps the same -160
+	-- bottom offset so it clears the Roblox movement joystick.
+	local RUN_SIZE = _isMobile and 38 or 44
 	local sprintBtn = Instance.new("TextButton")
 	sprintBtn.Name = "MobileSprintBtn"
-	sprintBtn.Size = UDim2.new(0, 44, 0, 44)
+	sprintBtn.Size = UDim2.new(0, RUN_SIZE, 0, RUN_SIZE)
 	sprintBtn.AnchorPoint = Vector2.new(0, 1)
 	sprintBtn.Position = UDim2.new(0, 12, 1, -160)
 	sprintBtn.Text = "RUN"
@@ -1669,10 +1702,17 @@ if isTouch then
 	end)
 
 	-- Register mobile buttons for drag-to-reposition in HUD Edit mode.
-	-- Defaults match new compact layout (44px buttons; col size 148; sprint at -100).
-	registerHudButton(adsBtn,    "hudAds",    UDim2.new(1, -12, 0.5, -52)) -- top of col
-	registerHudButton(reloadBtn, "hudReload", UDim2.new(1, -12, 0.5, 0))
-	registerHudButton(switchBtn, "hudSwap",   UDim2.new(1, -12, 0.5, 52))
+	-- Defaults reflect Round 7 shrunk layout (38px buttons on mobile, top-
+	-- anchored column at y=158 to clear the scoreboard cluster).
+	if _isMobile then
+		registerHudButton(adsBtn,    "hudAds",    UDim2.new(1, -12, 0, 158))
+		registerHudButton(reloadBtn, "hudReload", UDim2.new(1, -12, 0, 158 + COL_BTN_H + COL_BTN_GAP))
+		registerHudButton(switchBtn, "hudSwap",   UDim2.new(1, -12, 0, 158 + (COL_BTN_H + COL_BTN_GAP) * 2))
+	else
+		registerHudButton(adsBtn,    "hudAds",    UDim2.new(1, -12, 0.5, -52))
+		registerHudButton(reloadBtn, "hudReload", UDim2.new(1, -12, 0.5, 0))
+		registerHudButton(switchBtn, "hudSwap",   UDim2.new(1, -12, 0.5, 52))
+	end
 	registerHudButton(sprintBtn, "hudSprint", UDim2.new(0, 12, 1, -160))
 end
 

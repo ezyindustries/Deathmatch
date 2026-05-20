@@ -2,6 +2,8 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared.Modules.Remotes)
@@ -16,7 +18,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "EngagementHUD"
 screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
+screenGui.IgnoreGuiInset = false  -- modal: let Roblox auto-shift below the topbar (Unibar) so title isnt covered
 screenGui.DisplayOrder = 150
 screenGui.Parent = playerGui
 
@@ -51,13 +53,17 @@ local pulseCorner = Instance.new("UICorner")
 pulseCorner.CornerRadius = UDim.new(1, 0)
 pulseCorner.Parent = dailyPulse
 
--- Daily modal
-local dailyModal = Instance.new("Frame")
+-- Daily modal (TextButton + Modal=true so input doesn't leak through; tap
+-- outside the card to dismiss).
+local dailyModal = Instance.new("TextButton")
 dailyModal.Size = UDim2.new(1, 0, 1, 0)
 dailyModal.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 dailyModal.BackgroundTransparency = 0.45
 dailyModal.Visible = false
 dailyModal.BorderSizePixel = 0
+dailyModal.AutoButtonColor = false
+dailyModal.Text = ""
+dailyModal.Modal = true
 dailyModal.Parent = screenGui
 
 local dailyCard = Instance.new("Frame")
@@ -66,7 +72,24 @@ dailyCard.AnchorPoint = Vector2.new(0.5, 0.5)
 dailyCard.Position = UDim2.new(0.5, 0, 0.5, 0)
 dailyCard.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
 dailyCard.BorderSizePixel = 0
+dailyCard.Active = true -- absorb taps so outside-tap-to-close only fires outside card
 dailyCard.Parent = dailyModal
+
+-- Mobile clamp for daily card
+local dailyCardScale = Instance.new("UIScale")
+dailyCardScale.Scale = 1
+dailyCardScale.Parent = dailyCard
+local function refreshDailyCardScale()
+	local cam = Workspace.CurrentCamera
+	local v = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+	local sx = math.min(1, (v.X * 0.95) / 420)
+	local sy = math.min(1, (v.Y * 0.92) / 260)
+	dailyCardScale.Scale = math.min(sx, sy)
+end
+refreshDailyCardScale()
+if Workspace.CurrentCamera then
+	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshDailyCardScale)
+end
 
 local dailyCardCorner = Instance.new("UICorner")
 dailyCardCorner.CornerRadius = UDim.new(0, 14)
@@ -191,6 +214,10 @@ end)
 dailyCloseBtn.MouseButton1Click:Connect(function()
 	dailyModal.Visible = false
 end)
+-- Tap outside card to dismiss
+dailyModal.MouseButton1Click:Connect(function()
+	dailyModal.Visible = false
+end)
 dailyClaimBtn.MouseButton1Click:Connect(function()
 	if dailyClaimBtn.Text == "Wait" then
 		return
@@ -228,13 +255,16 @@ local missionPulseCorner = Instance.new("UICorner")
 missionPulseCorner.CornerRadius = UDim.new(1, 0)
 missionPulseCorner.Parent = missionPulse
 
--- Missions panel overlay
-local missionsOverlay = Instance.new("Frame")
+-- Missions panel overlay (TextButton + Modal=true, tap outside to dismiss)
+local missionsOverlay = Instance.new("TextButton")
 missionsOverlay.Size = UDim2.new(1, 0, 1, 0)
 missionsOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 missionsOverlay.BackgroundTransparency = 0.45
 missionsOverlay.Visible = false
 missionsOverlay.BorderSizePixel = 0
+missionsOverlay.AutoButtonColor = false
+missionsOverlay.Text = ""
+missionsOverlay.Modal = true
 missionsOverlay.Parent = screenGui
 
 local missionsPanel = Instance.new("Frame")
@@ -243,7 +273,24 @@ missionsPanel.AnchorPoint = Vector2.new(0.5, 0.5)
 missionsPanel.Position = UDim2.new(0.5, 0, 0.5, 0)
 missionsPanel.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
 missionsPanel.BorderSizePixel = 0
+missionsPanel.Active = true -- absorb taps inside panel
 missionsPanel.Parent = missionsOverlay
+
+-- Mobile clamp via UIScale for missions panel
+local missionsScale = Instance.new("UIScale")
+missionsScale.Scale = 1
+missionsScale.Parent = missionsPanel
+local function refreshMissionsScale()
+	local cam = Workspace.CurrentCamera
+	local v = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+	local sx = math.min(1, (v.X * 0.95) / 540)
+	local sy = math.min(1, (v.Y * 0.92) / 360)
+	missionsScale.Scale = math.min(sx, sy)
+end
+refreshMissionsScale()
+if Workspace.CurrentCamera then
+	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshMissionsScale)
+end
 
 local missionsCorner = Instance.new("UICorner")
 missionsCorner.CornerRadius = UDim.new(0, 14)
@@ -292,6 +339,18 @@ missionButton.MouseButton1Click:Connect(function()
 end)
 missionsClose.MouseButton1Click:Connect(function()
 	missionsOverlay.Visible = false
+end)
+-- Tap outside missions panel to dismiss
+missionsOverlay.MouseButton1Click:Connect(function()
+	missionsOverlay.Visible = false
+end)
+
+-- ESC closes either modal on desktop
+UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
+	if processed then return end
+	if input.KeyCode ~= Enum.KeyCode.Escape then return end
+	if dailyModal.Visible then dailyModal.Visible = false end
+	if missionsOverlay.Visible then missionsOverlay.Visible = false end
 end)
 
 type MissionRowRefs = {

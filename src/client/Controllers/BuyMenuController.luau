@@ -11,6 +11,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared.Modules.Remotes)
@@ -36,16 +37,22 @@ local STROKE    = Color3.fromRGB(58, 62, 76)
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "BuyMenuHUD"
 screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
+screenGui.IgnoreGuiInset = false  -- modal: let Roblox auto-shift below the topbar (Unibar) so title isnt covered
 screenGui.DisplayOrder = 140
 screenGui.Enabled = false
 screenGui.Parent = playerGui
 
-local backdrop = Instance.new("Frame")
+-- Backdrop is a TextButton + Modal=true so input doesn't pass through to the
+-- in-match HUD (FIRE/RELOAD/etc) while the menu is open. Tap outside the panel
+-- to dismiss (in addition to the X / B key).
+local backdrop = Instance.new("TextButton")
 backdrop.Size = UDim2.new(1, 0, 1, 0)
 backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 backdrop.BackgroundTransparency = 0.5
 backdrop.BorderSizePixel = 0
+backdrop.AutoButtonColor = false
+backdrop.Text = ""
+backdrop.Modal = true
 backdrop.Parent = screenGui
 
 local panel = Instance.new("Frame")
@@ -54,7 +61,24 @@ panel.AnchorPoint = Vector2.new(0.5, 0.5)
 panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 panel.BackgroundColor3 = BG_BASE
 panel.BorderSizePixel = 0
+panel.Active = true -- absorb taps inside panel so outside-tap-to-close works
 panel.Parent = backdrop
+
+-- Mobile viewport clamping via UIScale (shrink whole panel to fit ≤95% vw / ≤92% vh)
+local panelScale = Instance.new("UIScale")
+panelScale.Scale = 1
+panelScale.Parent = panel
+local function refreshPanelScale()
+	local cam = Workspace.CurrentCamera
+	local v = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+	local sx = math.min(1, (v.X * 0.95) / 700)
+	local sy = math.min(1, (v.Y * 0.92) / 480)
+	panelScale.Scale = math.min(sx, sy)
+end
+refreshPanelScale()
+if Workspace.CurrentCamera then
+	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshPanelScale)
+end
 
 local panelCorner = Instance.new("UICorner")
 panelCorner.CornerRadius = UDim.new(0, 10)
@@ -299,6 +323,7 @@ local function setOpen(value: boolean)
 end
 
 closeBtn.MouseButton1Click:Connect(function() setOpen(false) end)
+backdrop.MouseButton1Click:Connect(function() setOpen(false) end)
 
 Remotes.MatchStateChanged.OnClientEvent:Connect(function(payload: any)
 	if not payload then return end
@@ -322,6 +347,11 @@ end)
 
 UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
 	if processed then return end
+	-- ESC closes if open (works alongside the X button + tap-outside)
+	if screenGui.Enabled and input.KeyCode == Enum.KeyCode.Escape then
+		setOpen(false)
+		return
+	end
 	if input.KeyCode ~= Enum.KeyCode.B then return end
 	-- Only allow in deathmatch MATCH state (casual has fixed loadouts per round; lobby has the main-menu panel)
 	if currentState ~= MatchState.States.MATCH then return end

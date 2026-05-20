@@ -17,7 +17,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "LoadoutHUD"
 screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
+screenGui.IgnoreGuiInset = false  -- modal: let Roblox auto-shift below the topbar (Unibar) so title isnt covered
 screenGui.DisplayOrder = 150
 screenGui.Parent = playerGui
 
@@ -68,12 +68,15 @@ panel.Parent = overlay
 -- IMPORTANT: scale must be parented to `panel`, NOT `overlay`. Putting it on
 -- the overlay shrinks the overlay's tap area too, so taps in the now-uncovered
 -- bottom/right of the screen on mobile didn't trigger the outside-click close.
+-- Mobile scale tightened from 0.65 → 0.55 so the 700x540 panel renders as
+-- 385x297 — fits comfortably within 666x374 with margin for the close button
+-- + visible backdrop tap-target outside the modal.
 local panelScale = Instance.new("UIScale")
 panelScale.Parent = panel
 local function refreshPanelScale()
 	local vw = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize.X or 1920
-	if vw < 700 then panelScale.Scale = 0.65
-	elseif vw < 900 then panelScale.Scale = 0.75
+	if vw < 700 then panelScale.Scale = 0.55
+	elseif vw < 900 then panelScale.Scale = 0.72
 	elseif vw < 1200 then panelScale.Scale = 0.85
 	else panelScale.Scale = 1.0 end
 end

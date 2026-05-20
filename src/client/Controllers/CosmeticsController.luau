@@ -2,6 +2,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared.Modules.Remotes)
@@ -16,7 +17,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "CosmeticsHUD"
 screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
+screenGui.IgnoreGuiInset = false  -- modal: let Roblox auto-shift below the topbar (Unibar) so title isnt covered
 screenGui.DisplayOrder = 150
 screenGui.Parent = playerGui
 
@@ -39,13 +40,17 @@ local btnCorner = Instance.new("UICorner")
 btnCorner.CornerRadius = UDim.new(0, 8)
 btnCorner.Parent = button
 
--- Overlay panel
-local overlay = Instance.new("Frame")
+-- Overlay panel (TextButton + Modal=true so taps don't leak through; tap
+-- outside the panel dismisses)
+local overlay = Instance.new("TextButton")
 overlay.Size = UDim2.new(1, 0, 1, 0)
 overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 overlay.BackgroundTransparency = 0.45
 overlay.Visible = false
 overlay.BorderSizePixel = 0
+overlay.AutoButtonColor = false
+overlay.Text = ""
+overlay.Modal = true
 overlay.Parent = screenGui
 
 local panel = Instance.new("Frame")
@@ -54,6 +59,7 @@ panel.AnchorPoint = Vector2.new(0.5, 0.5)
 panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 panel.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
 panel.BorderSizePixel = 0
+panel.Active = true -- absorb taps so outside-tap-to-close only fires outside panel
 panel.Parent = overlay
 
 local panelCorner = Instance.new("UICorner")
@@ -109,6 +115,17 @@ end)
 closeBtn.MouseButton1Click:Connect(function()
 	overlay.Visible = false
 end)
+-- Outside-tap = close
+overlay.MouseButton1Click:Connect(function()
+	overlay.Visible = false
+end)
+-- ESC to close on desktop
+UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
+	if processed then return end
+	if overlay.Visible and input.KeyCode == Enum.KeyCode.Escape then
+		overlay.Visible = false
+	end
+end)
 
 -- Tabs (actual weapon names — Glock/AK/UMP/AWP + Knife category)
 local TABS = {
@@ -120,10 +137,17 @@ local TABS = {
 	{ key = "emote", label = "Emotes", slot = "emote", typeKey = "emote" },
 }
 
-local tabBar = Instance.new("Frame")
+-- Horizontal scrolling tab bar so all 6 tabs remain reachable when panel is
+-- clamped narrow on mobile (6 * 100 + padding = 636 > many mobile widths).
+local tabBar = Instance.new("ScrollingFrame")
 tabBar.Size = UDim2.new(1, -40, 0, 36)
 tabBar.Position = UDim2.new(0, 20, 0, 60)
 tabBar.BackgroundTransparency = 1
+tabBar.BorderSizePixel = 0
+tabBar.ScrollBarThickness = 0
+tabBar.ScrollingDirection = Enum.ScrollingDirection.X
+tabBar.CanvasSize = UDim2.new(0, 0, 0, 0)
+tabBar.AutomaticCanvasSize = Enum.AutomaticSize.X
 tabBar.Parent = panel
 
 local tabLayout = Instance.new("UIListLayout")

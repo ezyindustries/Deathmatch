@@ -75,6 +75,16 @@ function BotModel.Build(name: string, maxHealth: number, colors: BotColors?): Mo
 	humanoid.DisplayName = name
 	humanoid.Parent = model
 
+	-- CRITICAL: Humanoid REQUIRES an Animator child for Motor6D joint CFrame
+	-- updates (BotAnimator's hip/shoulder swing, EquipRifle's shoulder rotation)
+	-- to replicate to clients. Without this, server-side Motor6D writes do not
+	-- propagate the rig's pose to client renderers — on mobile the bot's body
+	-- parts can fail to render entirely (the user-reported "invisible bot but
+	-- bullets register" bug). Roblox character cloning normally bundles this
+	-- with StarterCharacter; procedurally-built R6 rigs must add it manually.
+	local animator = Instance.new("Animator")
+	animator.Parent = humanoid
+
 	model.PrimaryPart = hrp
 	model:SetAttribute("IsBot", true)
 	-- Force the bot to fully replicate to ALL clients regardless of StreamingEnabled
@@ -84,6 +94,12 @@ function BotModel.Build(name: string, maxHealth: number, colors: BotColors?): Mo
 	-- reported bug). Persistent streaming bypasses Roblox's per-Part visibility
 	-- culling for this Model's descendants.
 	model.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
+	-- Belt-and-suspenders: elevate streaming priority so the model is among
+	-- the FIRST instances streamed in when a mobile client connects. Default
+	-- priority is 0; positive values are streamed earlier. On weaker mobile
+	-- devices with high latency, this reduces the window where the bot exists
+	-- server-side but hasn't replicated client-side yet.
+	model.StreamingPriority = 1
 
 	local function motor(p0: BasePart, p1: BasePart, c0: CFrame, c1: CFrame, motorName: string)
 		local m = Instance.new("Motor6D")
@@ -94,12 +110,34 @@ function BotModel.Build(name: string, maxHealth: number, colors: BotColors?): Mo
 		m.C1 = c1
 		m.Parent = p0
 	end
-	motor(hrp, torso, CFrame.new(), CFrame.new(), "RootJoint")
-	motor(torso, head, CFrame.new(0, 1, 0), CFrame.new(0, -0.8, 0), "Neck")  -- C1 = -head/2 for 1.6 head
-	motor(torso, leftArm, CFrame.new(-1, 0.5, 0), CFrame.new(0.5, 0.5, 0), "Left Shoulder")
-	motor(torso, rightArm, CFrame.new(1, 0.5, 0), CFrame.new(-0.5, 0.5, 0), "Right Shoulder")
-	motor(torso, leftLeg, CFrame.new(-0.5, -1, 0), CFrame.new(0, 1, 0), "Left Hip")
-	motor(torso, rightLeg, CFrame.new(0.5, -1, 0), CFrame.new(0, 1, 0), "Right Hip")
+	-- R6 STANDARD JOINT TRANSFORMS. Previous build used identity rotation +
+	-- translation-only offsets, which left the rig in a partially-collapsed
+	-- pose: the Humanoid still treats HRP as the character position (kills /
+	-- raycasts work), but on clients the parts replicate without correct
+	-- orientation, contributing to the "invisible bot" symptom on mobile.
+	-- These values mirror what Roblox's stock R6 character ships with.
+	local rootC = CFrame.new() * CFrame.Angles(-math.pi / 2, 0, math.pi)
+	motor(hrp, torso, rootC, rootC, "RootJoint")
+	motor(torso, head,
+		CFrame.new(0, 1, 0)    * CFrame.Angles(-math.pi / 2, 0, math.pi),
+		CFrame.new(0, -0.8, 0) * CFrame.Angles(-math.pi / 2, 0, math.pi),
+		"Neck")
+	motor(torso, leftArm,
+		CFrame.new(-1, 0.5, 0)  * CFrame.Angles(0, -math.pi / 2, 0),
+		CFrame.new(0.5, 0.5, 0) * CFrame.Angles(0, -math.pi / 2, 0),
+		"Left Shoulder")
+	motor(torso, rightArm,
+		CFrame.new(1, 0.5, 0)    * CFrame.Angles(0, math.pi / 2, 0),
+		CFrame.new(-0.5, 0.5, 0) * CFrame.Angles(0, math.pi / 2, 0),
+		"Right Shoulder")
+	motor(torso, leftLeg,
+		CFrame.new(-0.5, -1, 0) * CFrame.Angles(0, -math.pi / 2, 0),
+		CFrame.new(0, 1, 0)     * CFrame.Angles(0, -math.pi / 2, 0),
+		"Left Hip")
+	motor(torso, rightLeg,
+		CFrame.new(0.5, -1, 0) * CFrame.Angles(0, math.pi / 2, 0),
+		CFrame.new(0, 1, 0)    * CFrame.Angles(0, math.pi / 2, 0),
+		"Right Hip")
 
 	-- CS-style: no overhead name, no HP bar. Damage is silent — players can't
 	-- read the enemy's HP. Suppress Roblox's default Humanoid display too.

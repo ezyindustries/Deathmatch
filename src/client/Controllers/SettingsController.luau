@@ -18,7 +18,7 @@ local camera = Workspace.CurrentCamera
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "SettingsHUD"
 screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
+screenGui.IgnoreGuiInset = false  -- modal: let Roblox auto-shift below the topbar (Unibar) so title isnt covered
 screenGui.DisplayOrder = 150
 screenGui.Parent = playerGui
 
@@ -41,7 +41,8 @@ local btnCorner = Instance.new("UICorner")
 btnCorner.CornerRadius = UDim.new(0, 8)
 btnCorner.Parent = button
 
--- Overlay (TextButton so clicking outside the panel closes the modal)
+-- Overlay (TextButton so clicking outside the panel closes the modal). Modal=true
+-- prevents input leaking through to lower-DisplayOrder HUDs.
 local overlay = Instance.new("TextButton")
 overlay.Size = UDim2.new(1, 0, 1, 0)
 overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
@@ -50,11 +51,15 @@ overlay.Visible = false
 overlay.BorderSizePixel = 0
 overlay.AutoButtonColor = false
 overlay.Text = ""
+overlay.Modal = true
 overlay.Parent = screenGui
 
--- Auto-scale modal to fit small screens (mobile gets ~0.65, desktop = 1.0)
+-- Auto-scale modal to fit small screens (mobile gets ~0.65, desktop = 1.0).
+-- IMPORTANT: parent the UIScale to PANEL (not overlay) — otherwise the entire
+-- full-screen overlay scales from its top-left corner, dragging the modal off
+-- of center. Panel has AnchorPoint=(0.5,0.5) so scaling it keeps it centered.
 local overlayScale = Instance.new("UIScale")
-overlayScale.Parent = overlay
+-- Parent is set later, AFTER `panel` is created, so the panel variable exists.
 local function refreshOverlayScale()
 	local vw = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize.X or 1920
 	if vw < 700 then overlayScale.Scale = 0.65
@@ -80,6 +85,11 @@ panel.BackgroundColor3 = Color3.fromRGB(22, 22, 32)
 panel.BorderSizePixel = 0
 panel.Active = true -- absorb clicks so they don't bubble to overlay
 panel.Parent = overlay
+
+-- Now that panel exists, parent the UIScale to it (see comment near
+-- overlayScale declaration). Scaling panel from its center keeps the modal
+-- centered on mobile instead of being dragged toward the screen's top-left.
+overlayScale.Parent = panel
 
 -- Tap outside panel = close
 overlay.MouseButton1Click:Connect(function()
@@ -122,6 +132,13 @@ button.MouseButton1Click:Connect(function()
 end)
 closeBtn.MouseButton1Click:Connect(function()
 	overlay.Visible = false
+end)
+-- ESC to close on desktop
+UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
+	if processed then return end
+	if overlay.Visible and input.KeyCode == Enum.KeyCode.Escape then
+		overlay.Visible = false
+	end
 end)
 
 local function makeSlider(parent: Frame, yOffset: number, label: string, min: number, max: number, settingKey: string, format: (number) -> string): (Frame, (number) -> ())

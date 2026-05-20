@@ -8,6 +8,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared.Modules.Remotes)
@@ -28,7 +29,16 @@ screenGui.Parent = playerGui
 
 -- =====================================================================
 -- TOP-CENTER: round + scores + timer
+-- Round 7 mobile shrink: panel 360x56 -> 260x40 with smaller scores/timer,
+-- so the casual HUD stays discreet at iPhone 7 (666x374). Currently hidden
+-- in production DM but supported for future Casual rollout.
 -- =====================================================================
+local function isMobileViewport(): boolean
+	local cam = Workspace.CurrentCamera
+	local vw = cam and cam.ViewportSize.X or 1920
+	return vw < 700
+end
+
 local topPanel = Instance.new("Frame")
 topPanel.Size = UDim2.new(0, 360, 0, 56)
 topPanel.AnchorPoint = Vector2.new(0.5, 0)
@@ -92,6 +102,44 @@ roundLbl.TextSize = 11
 roundLbl.TextColor3 = Color3.fromRGB(180, 190, 210)
 roundLbl.Text = "ROUND 1 — BUY"
 roundLbl.Parent = topPanel
+
+-- Responsive sizing: mobile shrinks panel + inner labels.
+local function refreshTopLayout()
+	local mobile = isMobileViewport()
+	if mobile then
+		topPanel.Size = UDim2.new(0, 260, 0, 40)
+		ctScore.Size = UDim2.new(0, 52, 0, 22)
+		ctScore.Position = UDim2.new(0, 8, 0, 3)
+		ctScore.TextSize = 14
+		tScore.Size = UDim2.new(0, 52, 0, 22)
+		tScore.Position = UDim2.new(1, -8, 0, 3)
+		tScore.TextSize = 14
+		timerLbl.Size = UDim2.new(0, 110, 0, 22)
+		timerLbl.Position = UDim2.new(0.5, 0, 0, 3)
+		timerLbl.TextSize = 17
+		roundLbl.Size = UDim2.new(1, 0, 0, 12)
+		roundLbl.Position = UDim2.new(0, 0, 0, 26)
+		roundLbl.TextSize = 9
+	else
+		topPanel.Size = UDim2.new(0, 360, 0, 56)
+		ctScore.Size = UDim2.new(0, 70, 0, 32)
+		ctScore.Position = UDim2.new(0, 12, 0, 4)
+		ctScore.TextSize = 22
+		tScore.Size = UDim2.new(0, 70, 0, 32)
+		tScore.Position = UDim2.new(1, -12, 0, 4)
+		tScore.TextSize = 22
+		timerLbl.Size = UDim2.new(0, 140, 0, 32)
+		timerLbl.Position = UDim2.new(0.5, 0, 0, 4)
+		timerLbl.TextSize = 26
+		roundLbl.Size = UDim2.new(1, 0, 0, 16)
+		roundLbl.Position = UDim2.new(0, 0, 0, 38)
+		roundLbl.TextSize = 11
+	end
+end
+refreshTopLayout()
+if Workspace.CurrentCamera then
+	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshTopLayout)
+end
 
 -- =====================================================================
 -- TEAM BADGE (bottom-left)

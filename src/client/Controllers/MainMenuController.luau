@@ -399,15 +399,17 @@ local modeCards: { TextButton } = {}
 local modeStrokes: { UIStroke } = {}
 
 -- Mode card geometry is responsive (recomputed in applyResponsiveLayout).
--- Mobile (vw<700): 180x100 — fits two cards side-by-side on iPhone 7 landscape
--- (666x374) with margin to spare for the side-button columns + rank chip.
--- Tablet (vw<1100): 220x120. Desktop: 260x160.
+-- Mobile (vw<700): 140x80 — fits two cards side-by-side on iPhone 7 landscape
+-- (666x374) with generous breathing room above (title) + below (PLAY).
+-- Shrunk from 180x100 after mobile audit: cards no longer dominate ~70% of the
+-- vertical real estate, leaving room for PLAY without overlapping the side
+-- button columns. Tablet (vw<1100): 200x110. Desktop: 260x160.
 local function getCardDims(): (number, number, number)
 	local w, h, gap
 	if isMobileVP() then
-		w, h, gap = 180, 100, UITheme.Space.m -- 12
+		w, h, gap = 140, 80, UITheme.Space.s -- 8
 	elseif isTabletVP() then
-		w, h, gap = 220, 120, UITheme.Space.l -- 16
+		w, h, gap = 200, 110, UITheme.Space.m -- 12
 	else
 		w, h, gap = 260, 160, UITheme.Space.xl -- 20
 	end
@@ -610,17 +612,20 @@ type SideButton = { label: string, icon: string, accent: Color3, signal: string 
 -- Side-button sizing is viewport-based (Studio Device Emulator-friendly).
 -- Detection switched from TouchEnabled to ViewportSize.X because the emulator
 -- doesn't always toggle TouchEnabled when simulating mobile viewports.
---   mobile (vw<700): 70x56 icon-only — narrower than before (100) so center
---     mode cards have more breathing room on iPhone 7 landscape (666px).
+--   mobile (vw<700): 50x50 icon-only — shrunk from 70x56 after mobile audit;
+--     iPhone 7 landscape (666x374) needs side buttons to occupy <55% of the
+--     vertical column so PLAY button + mode cards fit without overlap. Glyph
+--     size dropped to 22 (from 28) to feel proportional to the smaller chip.
 --   tablet/desktop (vw>=700): 200x56 with label visible.
-local SIDE_H = UITheme.TouchTarget.prominent -- 56
-local SIDE_GAP = UITheme.Space.m -- 12
-local function getSideMetrics(): (number, number, number)
-	-- Returns (width, edgeInset, iconSize). Label visibility derived from width.
+-- Note: getSideHeight() is dynamic too — mobile uses 50, prominent (56) elsewhere.
+local SIDE_GAP_MOBILE = UITheme.Space.s -- 8
+local SIDE_GAP_DESKTOP = UITheme.Space.m -- 12
+local function getSideMetrics(): (number, number, number, number, number)
+	-- Returns (width, height, edgeInset, iconSize, gap).
 	if isMobileVP() then
-		return 70, UITheme.Space.s, 28 -- 70 wide, 8px inset, 28px glyph
+		return 50, 50, UITheme.Space.s, 22, SIDE_GAP_MOBILE
 	else
-		return 200, UITheme.Space.x4l, 18 -- 200 wide, 48px inset, 18px glyph
+		return 200, UITheme.TouchTarget.prominent, UITheme.Space.x4l, 18, SIDE_GAP_DESKTOP
 	end
 end
 
@@ -635,10 +640,10 @@ type SideButtonRefs = {
 local sideButtonRefs: { SideButtonRefs } = {}
 
 local function makeSideButton(parent: Instance, def: SideButton, anchor: Vector2, indexInCol: number, colSize: number): TextButton
-	local sideW, edgeInset, iconSize = getSideMetrics()
+	local sideW, sideH, edgeInset, iconSize, _ = getSideMetrics()
 
 	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(0, sideW, 0, SIDE_H)
+	btn.Size = UDim2.new(0, sideW, 0, sideH)
 	btn.AnchorPoint = anchor
 	-- Y position computed by layout helper based on indexInCol/colSize
 	btn.Position = UDim2.new(anchor.X, anchor.X == 0 and edgeInset or -edgeInset, 0.5, 0)
@@ -751,18 +756,20 @@ local function applyResponsiveLayout()
 	local mobile = isMobileVP()
 	local tablet = isTabletVP()
 
-	-- Title size: 36 mobile / 48 tablet / 60 desktop.
+	-- Title size: 28 mobile / 40 tablet / 60 desktop. Mobile shrunk from h1=36
+	-- to h2=28 after audit — at 666x374 the h1 dominated ~22% of vertical space.
+	-- Subtitle dropped to micro+hidden-leading-padding for similar reason.
 	if mobile then
-		title.TextSize = UITheme.FontSize.h1 -- 36
-		title.Size = UDim2.new(0, math.min(560, getViewportW() - 80), 0, 48)
-		title.Position = UDim2.new(0.5, 0, 0, UITheme.Space.xxl)
-		subtitle.Position = UDim2.new(0.5, 0, 0, UITheme.Space.xxl + 44)
+		title.TextSize = UITheme.FontSize.h2 -- 28
+		title.Size = UDim2.new(0, math.min(560, getViewportW() - 80), 0, 36)
+		title.Position = UDim2.new(0.5, 0, 0, UITheme.Space.s) -- 8px from top
+		subtitle.Position = UDim2.new(0.5, 0, 0, UITheme.Space.s + 32)
 		subtitle.TextSize = UITheme.FontSize.micro
 	elseif tablet then
-		title.TextSize = UITheme.FontSize.display -- 48
-		title.Size = UDim2.new(0, 600, 0, 64)
-		title.Position = UDim2.new(0.5, 0, 0, UITheme.Space.x3l)
-		subtitle.Position = UDim2.new(0.5, 0, 0, UITheme.Space.x3l + 58)
+		title.TextSize = 40
+		title.Size = UDim2.new(0, 600, 0, 52)
+		title.Position = UDim2.new(0.5, 0, 0, UITheme.Space.xl)
+		subtitle.Position = UDim2.new(0.5, 0, 0, UITheme.Space.xl + 48)
 		subtitle.TextSize = UITheme.FontSize.caption
 	else
 		title.TextSize = 60
@@ -778,17 +785,22 @@ local function applyResponsiveLayout()
 	CARDS_TOTAL = #MODES * CARD_WIDTH + (#MODES - 1) * CARD_GAP
 
 	-- Center column size + offset — narrower on mobile so it sits above PLAY
-	-- without colliding with edge-pinned side buttons.
-	local colHeight = ch + (mobile and 72 or 100) -- card height + space for PLAY
-	centerCol.Size = UDim2.new(0, CARDS_TOTAL + 24, 0, colHeight + 60)
-	-- Shift center column down a touch on mobile so it clears the rank chip /
-	-- title block above. Rank chip lives top-left at ~y=20-90.
-	centerCol.Position = UDim2.new(0.5, 0, 0.5, mobile and 10 or -10)
+	-- without colliding with edge-pinned side buttons. Mobile: card_h(80) +
+	-- gap(32) + PLAY_h(48) = 160; tablet/desktop unchanged from prior layout.
+	local colHeight = ch + (mobile and 80 or 100) -- card height + space for PLAY
+	centerCol.Size = UDim2.new(0, CARDS_TOTAL + 24, 0, colHeight + (mobile and 32 or 60))
+	-- Shift center column down on mobile so it clears the title block above
+	-- (title bottom ~46) and the rank chip (~y=84 top-left). Centered-y with a
+	-- small bias keeps PLAY visible above the player/version labels at bottom.
+	centerCol.Position = UDim2.new(0.5, 0, 0.5, mobile and 20 or -10)
 
-	-- Re-lay each mode card + its labels
+	-- Re-lay each mode card + its labels. Cards start closer to section label on
+	-- mobile (y=22) than desktop (y=32) — the section label is smaller and the
+	-- vertical budget is tight at 374px viewport height.
+	local cardTopY = mobile and 22 or 32
 	for i, card in modeCards do
 		card.Size = UDim2.new(0, CARD_WIDTH, 0, CARD_HEIGHT)
-		card.Position = UDim2.new(0.5, -CARDS_TOTAL / 2 + (i - 1) * (CARD_WIDTH + CARD_GAP), 0, 32)
+		card.Position = UDim2.new(0.5, -CARDS_TOTAL / 2 + (i - 1) * (CARD_WIDTH + CARD_GAP), 0, cardTopY)
 
 		local refs = modeCardRefs[i]
 		if refs then
@@ -817,24 +829,30 @@ local function applyResponsiveLayout()
 		end
 	end
 
-	-- PLAY button — mobile 360x56, tablet 440x64, desktop matches card row x 72
+	-- PLAY button — mobile 280x48, tablet 380x60, desktop matches card row x 72.
+	-- Mobile shrunk from 360x56 → 280x48 after audit: at 666x374, the previous
+	-- size pushed PLAY into the side-button vertical column. 280 still gives a
+	-- generous tap target while leaving comfortable padding from the cards above.
 	local playW, playH, playTextSize
 	if mobile then
-		playW, playH, playTextSize = math.min(360, CARDS_TOTAL), 56, UITheme.FontSize.bodyLg
+		playW, playH, playTextSize = math.min(280, CARDS_TOTAL), 48, UITheme.FontSize.body
 	elseif tablet then
-		playW, playH, playTextSize = math.min(440, CARDS_TOTAL), 64, UITheme.FontSize.h3
+		playW, playH, playTextSize = math.min(380, CARDS_TOTAL), 60, UITheme.FontSize.bodyLg
 	else
 		playW, playH, playTextSize = CARDS_TOTAL, 72, 30
 	end
 	playBtn.Size = UDim2.new(0, playW, 0, playH)
-	playBtn.Position = UDim2.new(0.5, 0, 0, CARD_HEIGHT + (mobile and 48 or 60))
+	playBtn.Position = UDim2.new(0.5, 0, 0, CARD_HEIGHT + (mobile and UITheme.Space.x3l or 60))
 	playBtn.TextSize = playTextSize
 
-	-- Side buttons — width, icon size, label visibility, position
-	local sideW, edgeInset, iconSize = getSideMetrics()
+	-- Side buttons — width, height, icon size, label visibility, position.
+	-- Height is dynamic (50 mobile / 56 desktop) so the 3-button column on
+	-- mobile shrinks from 192px tall → 166px, freeing vertical space for the
+	-- center column without clipping the player/version labels at the bottom.
+	local sideW, sideH, edgeInset, iconSize, sideGap = getSideMetrics()
 	for _, ref in sideButtonRefs do
-		ref.btn.Size = UDim2.new(0, sideW, 0, SIDE_H)
-		local yOffset = -((ref.colSize - 1) * (SIDE_H + SIDE_GAP)) / 2 + (ref.indexInCol - 1) * (SIDE_H + SIDE_GAP)
+		ref.btn.Size = UDim2.new(0, sideW, 0, sideH)
+		local yOffset = -((ref.colSize - 1) * (sideH + sideGap)) / 2 + (ref.indexInCol - 1) * (sideH + sideGap)
 		if ref.anchor.X == 0 then
 			ref.btn.Position = UDim2.new(0, edgeInset, 0.5, yOffset)
 		else
@@ -868,7 +886,8 @@ if Workspace.CurrentCamera then
 	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(applyResponsiveLayout)
 end
 
--- Player name at bottom-left
+-- Player name at bottom-left — hidden on mobile to keep the menu uncluttered
+-- (the side button column already occupies the left edge below center)
 local playerLabel = Instance.new("TextLabel")
 playerLabel.Size = UDim2.new(0, 300, 0, 24)
 playerLabel.AnchorPoint = Vector2.new(0, 1)
@@ -893,6 +912,20 @@ versionLabel.TextColor3 = Color3.fromRGB(90, 100, 120)
 versionLabel.TextXAlignment = Enum.TextXAlignment.Right
 versionLabel.Text = "v0.1 — early dev"
 versionLabel.Parent = screenGui
+
+-- Hide chrome labels on mobile — at 666x374 the side button column edges sit
+-- close to the corner labels and they end up visually overlapping. Player name
+-- + version are non-essential context that the player can see in the settings
+-- menu anyway.
+local function refreshChromeVisibility()
+	local mobile = isMobileVP()
+	playerLabel.Visible = not mobile
+	versionLabel.Visible = not mobile
+end
+refreshChromeVisibility()
+if Workspace.CurrentCamera then
+	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshChromeVisibility)
+end
 
 -- ===== Scriptable cinematic camera =====
 local function setupMenuCamera()

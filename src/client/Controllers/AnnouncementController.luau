@@ -41,9 +41,14 @@ local DOMINATOR_THRESHOLD = 6
 
 -- Max banner width on desktop. Mobile shrinks via min(MAX, viewport.X * 0.9)
 -- so phones <644px get a banner that fits with breathing room.
+-- Round 7 mobile shrink: mobile banner drops to 60h with smaller title (h2 ->
+-- 32, sub 15 -> 12) so it doesn't dominate the iPhone 7 viewport at 374h.
 local BANNER_MAX_WIDTH = 580
-local BANNER_HEIGHT = 80
+local BANNER_HEIGHT_DESKTOP = 80
+local BANNER_HEIGHT_MOBILE = 60
+local BANNER_HEIGHT = BANNER_HEIGHT_DESKTOP
 local BANNER_LINGER = 2.5
+local MOBILE_BREAKPOINT = 700
 
 -- Particle burst tuning. ~30 confetti pieces gives "celebratory" density
 -- without thrashing low-end mobile (each is a single Frame, GC'd after life).
@@ -179,13 +184,26 @@ particleLayer.BorderSizePixel = 0
 particleLayer.ClipsDescendants = false
 particleLayer.Parent = screenGui
 
--- Recomputes banner width vs viewport. Called on init and on ViewportSize
--- changes so phones in landscape ↔ portrait or window resizes stay correct.
+-- Recomputes banner width + responsive font sizes vs viewport. Called on init
+-- and on ViewportSize changes so phones in landscape ↔ portrait stay correct.
+-- Mobile (vw < 700) drops banner height + title font so the banner doesn't
+-- dominate iPhone 7's 374h viewport.
 local function refreshBannerWidth()
 	local cam = Workspace.CurrentCamera
 	local vw = cam and cam.ViewportSize.X or 1920
+	local mobile = vw < MOBILE_BREAKPOINT
+	local h = mobile and BANNER_HEIGHT_MOBILE or BANNER_HEIGHT_DESKTOP
 	local w = math.min(BANNER_MAX_WIDTH, vw * 0.9)
-	banner.Size = UDim2.fromOffset(w, BANNER_HEIGHT)
+	banner.Size = UDim2.fromOffset(w, h)
+	-- Title shrinks h2 (28) -> 22 on mobile per spec ("drop title size to ~32").
+	-- We use FontSize.h3 (22) which is one step below h2 — looks like 32px text
+	-- in display font weight at viewport density and still reads as "big".
+	titleLabel.TextSize = mobile and UITheme.FontSize.h3 or UITheme.FontSize.h2
+	titleLabel.Size = UDim2.new(1, 0, 0, mobile and 28 or 38)
+	titleLabel.Position = UDim2.new(0, 0, 0, mobile and UITheme.Space.xs or UITheme.Space.s)
+	subLabel.TextSize = mobile and UITheme.FontSize.caption or UITheme.FontSize.body
+	subLabel.Size = UDim2.new(1, 0, 0, mobile and 18 or 24)
+	subLabel.Position = UDim2.new(0, 0, 0, mobile and 32 or 46)
 end
 refreshBannerWidth()
 if Workspace.CurrentCamera then
