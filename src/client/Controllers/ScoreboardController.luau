@@ -3,9 +3,12 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+local GuiService = game:GetService("GuiService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared.Modules.Remotes)
+local UITheme = require(Shared.Modules.UITheme)
 
 local ScoreboardController = {}
 
@@ -18,29 +21,158 @@ screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
 screenGui.Parent = playerGui
 
--- Compact mini-scoreboard (top-left, always visible)
+-- ---------------------------------------------------------------------------
+-- MINI SCOREBOARD (top-right cluster) — top-N rank list, always visible.
+-- Shows up to 4 cards (#1..#4) with rank, name, K/D. Mobile shrinks rows
+-- (260x36 → 180x26) and font (caption 13 → micro 11) so the cluster doesn't
+-- crowd the FIRE button + right-edge column on narrow viewports.
+-- ---------------------------------------------------------------------------
+local MINI_MAX_ENTRIES = 4
+
+-- Layout constants (desktop vs mobile). Exposed via ScoreboardController so
+-- KillFeedController (and tests) can compute container offsets that sit
+-- directly below the mini scoreboard without overlapping.
+local MINI_ROW_W_DESKTOP = 260
+local MINI_ROW_H_DESKTOP = 36
+local MINI_ROW_W_MOBILE = 180
+local MINI_ROW_H_MOBILE = 26
+local MINI_ROW_GAP_DESKTOP = UITheme.Space.xs -- 4px
+local MINI_ROW_GAP_MOBILE = 2
+
+local function isMobileViewport(): boolean
+	local cam = Workspace.CurrentCamera
+	local vw = cam and cam.ViewportSize.X or 1920
+	return vw < 700
+end
+
+-- Compute total mini-scoreboard height (rows + gaps). Used by KillFeed to
+-- position its container directly underneath.
+function ScoreboardController.getMiniHeight(): number
+	local mobile = isMobileViewport()
+	local rowH = mobile and MINI_ROW_H_MOBILE or MINI_ROW_H_DESKTOP
+	local gap = mobile and MINI_ROW_GAP_MOBILE or MINI_ROW_GAP_DESKTOP
+	return MINI_MAX_ENTRIES * rowH + (MINI_MAX_ENTRIES - 1) * gap
+end
+
+function ScoreboardController.getMiniWidth(): number
+	return isMobileViewport() and MINI_ROW_W_MOBILE or MINI_ROW_W_DESKTOP
+end
+
+-- Anchored top-right. Width/height get refreshed responsively below.
 local mini = Instance.new("Frame")
-mini.Size = UDim2.new(0, 260, 0, 36)
-mini.Position = UDim2.new(0, 20, 0, 20)
-mini.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
-mini.BackgroundTransparency = 0.2
+mini.Name = "MiniScoreboard"
+mini.AnchorPoint = Vector2.new(1, 0)
+mini.BackgroundTransparency = 1 -- container is invisible; rows have their own bg
 mini.BorderSizePixel = 0
 mini.Parent = screenGui
 
-local miniCorner = Instance.new("UICorner")
-miniCorner.CornerRadius = UDim.new(0, 10)
-miniCorner.Parent = mini
+local miniLayout = Instance.new("UIListLayout")
+miniLayout.FillDirection = Enum.FillDirection.Vertical
+miniLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+miniLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+miniLayout.SortOrder = Enum.SortOrder.LayoutOrder
+miniLayout.Parent = mini
 
-local miniLabel = Instance.new("TextLabel")
-miniLabel.Size = UDim2.new(1, -16, 1, 0)
-miniLabel.Position = UDim2.new(0, 8, 0, 0)
-miniLabel.BackgroundTransparency = 1
-miniLabel.Font = Enum.Font.GothamBold
-miniLabel.TextSize = 16
-miniLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-miniLabel.TextXAlignment = Enum.TextXAlignment.Left
-miniLabel.Text = "K 0  /  D 0"
-miniLabel.Parent = mini
+local function refreshMiniLayout()
+	local mobile = isMobileViewport()
+	local w = mobile and MINI_ROW_W_MOBILE or MINI_ROW_W_DESKTOP
+	local h = ScoreboardController.getMiniHeight()
+	mini.Size = UDim2.new(0, w, 0, h)
+	-- Right-edge inset. Match KillFeedController's xl margin so they share the
+	-- same right edge on desktop. On mobile, additionally clear the FIRE
+	-- button + right-edge column — handled by KillFeed, but keep scoreboard
+	-- with a generous mobile inset so it still has breathing room.
+	local rightOffset = UITheme.Space.l -- 16
+	if mobile then
+		rightOffset = UITheme.Space.m -- 12 — tighter on phone to maximize space
+	end
+	local topInset = GuiService:GetGuiInset().Y
+	mini.Position = UDim2.new(1, -rightOffset, 0, topInset + UITheme.Space.l)
+	miniLayout.Padding = UDim.new(0, mobile and MINI_ROW_GAP_MOBILE or MINI_ROW_GAP_DESKTOP)
+end
+refreshMiniLayout()
+if Workspace.CurrentCamera then
+	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshMiniLayout)
+end
+
+-- Per-row builder. Local player gets a cyan accent so they can spot themselves.
+local function buildMiniRow(rank: number, entry: any, layoutOrder: number): Frame
+	local mobile = isMobileViewport()
+	local rowH = mobile and MINI_ROW_H_MOBILE or MINI_ROW_H_DESKTOP
+	local rowW = mobile and MINI_ROW_W_MOBILE or MINI_ROW_W_DESKTOP
+	local fontSize = mobile and UITheme.FontSize.micro or UITheme.FontSize.caption
+	local isLocal = entry.userId == player.UserId
+
+	local row = Instance.new("Frame")
+	row.Name = "Rank" .. tostring(rank)
+	row.Size = UDim2.new(0, rowW, 0, rowH)
+	row.BackgroundColor3 = isLocal and UITheme.Color.bgHover or UITheme.Color.bgElevated
+	row.BackgroundTransparency = 0.15
+	row.BorderSizePixel = 0
+	row.LayoutOrder = layoutOrder
+	row.Parent = mini
+
+	UITheme.corner(row, "md")
+
+	-- Subtle accent stripe for local player (matches KillFeed tier stripe vibe)
+	if isLocal then
+		local stripe = Instance.new("Frame")
+		stripe.Size = UDim2.new(0, 3, 1, 0)
+		stripe.BackgroundColor3 = UITheme.Color.accentPrimary
+		stripe.BorderSizePixel = 0
+		stripe.Parent = row
+		UITheme.corner(stripe, "sm")
+	end
+
+	-- Rank "#1" tag on the left
+	local rankLbl = Instance.new("TextLabel")
+	rankLbl.Size = UDim2.new(0, mobile and 22 or 30, 1, 0)
+	rankLbl.Position = UDim2.new(0, mobile and 8 or 10, 0, 0)
+	rankLbl.BackgroundTransparency = 1
+	rankLbl.Font = UITheme.Font.heading
+	rankLbl.TextSize = fontSize
+	rankLbl.TextColor3 = UITheme.Color.textTertiary
+	rankLbl.TextXAlignment = Enum.TextXAlignment.Left
+	rankLbl.Text = "#" .. tostring(rank)
+	rankLbl.Parent = row
+
+	-- Name (truncates if too long)
+	local nameLbl = Instance.new("TextLabel")
+	local namePadL = mobile and 32 or 44
+	local kdW = mobile and 56 or 80
+	nameLbl.Size = UDim2.new(1, -(namePadL + kdW + (mobile and 8 or 12)), 1, 0)
+	nameLbl.Position = UDim2.new(0, namePadL, 0, 0)
+	nameLbl.BackgroundTransparency = 1
+	nameLbl.Font = UITheme.Font.heading
+	nameLbl.TextSize = fontSize
+	nameLbl.TextColor3 = isLocal and UITheme.Color.accentPrimary or UITheme.Color.textPrimary
+	nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+	nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+	nameLbl.Text = tostring(entry.name or "?")
+	nameLbl.Parent = row
+
+	-- K/D on the right
+	local kdLbl = Instance.new("TextLabel")
+	kdLbl.Size = UDim2.new(0, kdW, 1, 0)
+	kdLbl.Position = UDim2.new(1, -(kdW + (mobile and 8 or 12)), 0, 0)
+	kdLbl.BackgroundTransparency = 1
+	kdLbl.Font = UITheme.Font.mono
+	kdLbl.TextSize = fontSize
+	kdLbl.TextColor3 = UITheme.Color.textSecondary
+	kdLbl.TextXAlignment = Enum.TextXAlignment.Right
+	kdLbl.Text = string.format("%d / %d", entry.kills or 0, entry.deaths or 0)
+	kdLbl.Parent = row
+
+	return row
+end
+
+local function clearMiniRows()
+	for _, c in mini:GetChildren() do
+		if c:IsA("Frame") then
+			c:Destroy()
+		end
+	end
+end
 
 -- Full scoreboard (hold Tab to show)
 local fullScoreboard = Instance.new("Frame")
@@ -140,12 +272,32 @@ local function buildRow(entry: any, index: number)
 end
 
 local function updateScoreboard(list: { any })
+	-- Full scoreboard rows (visible while holding Tab)
 	clearRows()
 	for i, entry in ipairs(list) do
 		buildRow(entry, i)
-		if entry.userId == player.UserId then
-			miniLabel.Text = string.format("K %d  /  D %d", entry.kills, entry.deaths)
+	end
+
+	-- Mini scoreboard: top-N by kills (list arrives sorted from server). If the
+	-- local player isn't already in the top-N, swap them into the last slot so
+	-- the player can always see their own K/D.
+	clearMiniRows()
+	local topN: { any } = {}
+	local localInTop = false
+	local localEntry: any = nil
+	for i, entry in ipairs(list) do
+		if i <= MINI_MAX_ENTRIES then
+			table.insert(topN, entry)
+			if entry.userId == player.UserId then localInTop = true end
+		elseif entry.userId == player.UserId then
+			localEntry = entry
 		end
+	end
+	if not localInTop and localEntry and #topN >= MINI_MAX_ENTRIES then
+		topN[#topN] = localEntry
+	end
+	for i, entry in ipairs(topN) do
+		buildMiniRow(i, entry, i)
 	end
 end
 
