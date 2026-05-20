@@ -161,9 +161,11 @@ subLabel.Name = "Subtitle"
 subLabel.Size = UDim2.new(1, 0, 0, 24)
 subLabel.Position = UDim2.new(0, 0, 0, 46)
 subLabel.BackgroundTransparency = 1
-subLabel.Font = UITheme.Font.body
-subLabel.TextSize = UITheme.FontSize.caption
-subLabel.TextColor3 = UITheme.Color.textSecondary
+subLabel.Font = UITheme.Font.heading
+subLabel.TextSize = UITheme.FontSize.body
+subLabel.TextColor3 = UITheme.Color.textPrimary
+subLabel.TextStrokeColor3 = UITheme.Color.bgDeepest
+subLabel.TextStrokeTransparency = 0.5
 subLabel.Text = ""
 subLabel.Parent = banner
 
@@ -255,8 +257,7 @@ local enabled = true
 
 -- Token-guarded entry/exit so rapid back-to-back streaks don't have their
 -- exit tweens cancel an in-progress entry of the next banner.
-local function openBanner(info: any)
-	if not enabled then return end
+local function renderBanner(info: any)
 	activeToken += 1
 	local myToken = activeToken
 
@@ -328,12 +329,18 @@ end)
 
 -- PRESERVED INTERFACE: server payload contract is { player, streak, label }.
 -- Do not change this signature — multiple server services emit this remote.
+-- Public entry: gated on `enabled` (player setting). Production path.
+local function openBanner(info: any)
+	if not enabled then return end
+	renderBanner(info)
+end
+
 Remotes.KillstreakAnnouncement.OnClientEvent:Connect(openBanner)
 
--- Test hook (Tier 2 integration tests). Lets tests trigger the banner with
--- the same payload shape the remote uses, without needing a server fixture.
+-- Test hook (Tier 2 integration tests). BYPASSES the `enabled` setting check
+-- so tests can verify the banner regardless of the player's killstreak toggle.
 -- Underscore-prefixed to signal "do not call from gameplay code".
-AnnouncementController._OpenForTest = openBanner
+AnnouncementController._OpenForTest = renderBanner
 
 -- Also export the pure resolver so Tier 1 tests can sanity-check without
 -- having to parse source — kept alongside the sentinel-extracted path for

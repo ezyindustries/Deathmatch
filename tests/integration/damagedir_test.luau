@@ -92,4 +92,7 @@ function M.getScript(): string
     return STUDIO_SCRIPT
 end
 
+-- Normalized field — orchestrator uses `.code` for all integration test files.
+M.code = STUDIO_SCRIPT
+
 return M

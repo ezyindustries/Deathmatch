@@ -12,7 +12,7 @@
 --
 -- Returns "PASS" or "FAIL: <reason>".
 
-return [[
+return { code = [[
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
@@ -67,4 +67,4 @@ end
 if not foundDot then return "FAIL: state-color dot Frame (Size 0,8,0,8) not found" end
 
 return "PASS"
-]]
+]] }
