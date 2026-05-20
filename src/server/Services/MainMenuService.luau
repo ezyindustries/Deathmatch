@@ -1,6 +1,7 @@
 --!strict
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared.Modules.Remotes)
@@ -48,6 +49,36 @@ local function spawnInto(player: Player, mode: string?)
 	else
 		CasualQueueService.Leave(player)
 		player:LoadCharacter()
+		-- If we're already mid-match (e.g. user clicked PLAY after STARTING
+		-- already teleported the other players), LoadCharacter would dump
+		-- this player at the lobby SpawnLocation and they'd never reach the
+		-- arena. Catch that case here and teleport them to an arena spawn
+		-- ourselves so bots+other players are visible.
+		if MatchStateService.GetCurrentState() == MatchState.States.MATCH
+			and MatchStateService.GetGamemode() == "deathmatch" then
+			task.spawn(function()
+				task.wait(0.3) -- let LoadCharacter finish parenting the rig
+				local okArena, ArenaService = pcall(require, script.Parent.ArenaService)
+				if not okArena then return end
+				local arena = Workspace:FindFirstChild("ActiveArena")
+				local spawnsFolder = arena and arena:FindFirstChild("Spawns")
+				if not spawnsFolder then return end
+				local arenaSpawns = {}
+				for _, c in spawnsFolder:GetChildren() do
+					if c:IsA("BasePart") then table.insert(arenaSpawns, c) end
+				end
+				if #arenaSpawns == 0 then return end
+				local sp = arenaSpawns[math.random(#arenaSpawns)]
+				ArenaService.TeleportPlayerTo(player, sp.CFrame + Vector3.new(0, 5, 0))
+				if ArenaService.GrantSpawnProtection then
+					ArenaService.GrantSpawnProtection(player)
+				end
+				print(string.format(
+					"[MainMenu] Late-join teleport: %s → arena spawn %s",
+					player.Name, tostring(sp.Position)
+				))
+			end)
+		end
 	end
 end
 
