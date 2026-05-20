@@ -16,6 +16,11 @@ local startedAt = os.clock()
 local function discoverTests(dir: string): { string }
 	local found: { string } = {}
 	if not fs.isDir(dir) then return found end
+	-- Integration tests return Luau code strings to ship to Studio via MCP
+	-- execute_luau — they are NOT runnable under Lune, so skip the dir.
+	if string.match(dir, "/integration$") or string.match(dir, "^integration$") then
+		return found
+	end
 	for _, entry in fs.readDir(dir) do
 		local full = dir .. "/" .. entry
 		if fs.isDir(full) then
