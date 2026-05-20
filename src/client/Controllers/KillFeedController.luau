@@ -17,9 +17,15 @@ local KillFeedController = {}
 local MAX_ENTRIES_DESKTOP = 5
 local MAX_ENTRIES_MOBILE = 2 -- short-vertical viewports can't fit more
 local ENTRY_LIFETIME = 4
-local ENTRY_HEIGHT = 36
+local ENTRY_HEIGHT_DESKTOP = 36
+local ENTRY_HEIGHT_MOBILE = 28 -- shrunk so the top-right cluster stays compact
 local ENTRY_MAX_W_DESKTOP = 420
 local ENTRY_MAX_W_MOBILE = 220 -- shrunk from 320 to stay clear of right-edge ammo/buttons
+-- Entries now sit BELOW the mini scoreboard. The background is intentionally
+-- more transparent (0.35 vs old 0.08) so the cluster reads as "secondary chrome"
+-- next to the prominent scoreboard cards. Tier accent stripe stays full-opacity
+-- so legendary/contraband kills still pop.
+local ENTRY_BG_TRANSPARENCY = 0.35
 -- WeaponController places the mobile FIRE button anchored bottom-right at
 -- (-88, -130) with size 72x72. KillFeed entries are anchored top-right and we
 -- shift them LEFT past the FIRE button + a margin so they never extend into
@@ -27,6 +33,13 @@ local ENTRY_MAX_W_MOBILE = 220 -- shrunk from 320 to stay clear of right-edge am
 local FIRE_BUTTON_WIDTH = 72
 -- Also clear the right-edge ADS/RELOAD/SWAP column (44 wide, +12 right padding).
 local RIGHT_COL_RESERVE = 56
+-- Gap between the bottom of the mini scoreboard and the first KillFeed entry.
+local SCOREBOARD_GAP = UITheme.Space.m -- 12
+
+-- Fallback scoreboard heights if the ScoreboardController helper is unavailable
+-- (e.g. test environments). These match ScoreboardController.luau's constants.
+local FALLBACK_MINI_HEIGHT_DESKTOP = 4 * 36 + 3 * UITheme.Space.xs -- 156
+local FALLBACK_MINI_HEIGHT_MOBILE = 4 * 26 + 3 * 2                  -- 110
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -57,10 +70,22 @@ container.Position = UDim2.new(1, -UITheme.Space.xl, 0, UITheme.Space.x5l + UITh
 container.BackgroundTransparency = 1
 container.Parent = screenGui
 
+-- Mini-scoreboard height. ScoreboardController is a sibling client controller
+-- (not exposed via ReplicatedStorage), so we mirror its constants here and the
+-- unit test `topright_cluster_test.luau` asserts they stay in lock-step.
+local function getScoreboardHeight(mobileViewport: boolean): number
+	return mobileViewport and FALLBACK_MINI_HEIGHT_MOBILE or FALLBACK_MINI_HEIGHT_DESKTOP
+end
+
+local function getEntryHeight(): number
+	return isMobileDevice() and ENTRY_HEIGHT_MOBILE or ENTRY_HEIGHT_DESKTOP
+end
+
 -- Responsive container position + width.
 -- Width: narrower on mobile to stay clear of right-edge HUD (FIRE + ADS column).
--- Y position: on mobile, push DOWN below Match HUD (which sits at topInset + 16
--- with ~44 height) so kill feed entries don't overlap the timer/state badge.
+-- Y position: ALWAYS sits BELOW the mini scoreboard (topInset + scoreboardH + gap)
+-- so the top-right cluster reads as a single column (scoreboard cards on top,
+-- KillFeed entries underneath) instead of two floating elements that overlap.
 -- X position: shift LEFT past FIRE button + right-edge column on mobile.
 local function refreshContainerSize()
 	local cam = Workspace.CurrentCamera
@@ -68,18 +93,22 @@ local function refreshContainerSize()
 	local mobileViewport = vw < 700
 	local w = mobileViewport and (ENTRY_MAX_W_MOBILE + 8) or (ENTRY_MAX_W_DESKTOP + 8)
 	local maxEntries = mobileViewport and MAX_ENTRIES_MOBILE or MAX_ENTRIES_DESKTOP
-	local h = maxEntries * ENTRY_HEIGHT + (maxEntries - 1) * UITheme.Space.s
+	local entryH = mobileViewport and ENTRY_HEIGHT_MOBILE or ENTRY_HEIGHT_DESKTOP
+	local h = maxEntries * entryH + (maxEntries - 1) * UITheme.Space.s
 	container.Size = UDim2.new(0, w, 0, h)
 
 	local rightOffset = UITheme.Space.xl
-	local topOffset = UITheme.Space.x5l + UITheme.Space.x3l -- 96 desktop default
-	if isMobileDevice() then
+	if mobileViewport then
 		rightOffset = FIRE_BUTTON_WIDTH + RIGHT_COL_RESERVE + UITheme.Space.s -- ≈ 136
-		-- Below Match HUD (topInset + 16 + ~44) with generous gap so entries
-		-- never collide with the timer on short-vertical viewports.
-		local topInset = GuiService:GetGuiInset().Y
-		topOffset = topInset + 44 + UITheme.Space.x3l + UITheme.Space.s -- 44 + 32 + 8 = 84
 	end
+
+	-- Sit directly below the mini scoreboard. The scoreboard itself anchors at
+	-- topInset + UITheme.Space.l, so:
+	--   topOffset = (topInset + Space.l) + scoreboardHeight + gap
+	local topInset = GuiService:GetGuiInset().Y
+	local sbH = getScoreboardHeight(mobileViewport)
+	local topOffset = topInset + UITheme.Space.l + sbH + SCOREBOARD_GAP
+
 	container.Position = UDim2.new(1, -rightOffset, 0, topOffset)
 end
 refreshContainerSize()
@@ -114,13 +143,19 @@ end
 local function buildEntry(info: any)
 	local isLocalKill = info.killer == player.Name
 	local tierColor = tierColorFor(info.weaponId)
+	local mobile = isMobileDevice()
+	local entryH = getEntryHeight()
+	-- On mobile, drop one text-size step (body 15 → caption 13). Weapon "verb"
+	-- in the middle drops to micro 11 so it stays subordinate.
+	local nameFontSize = mobile and UITheme.FontSize.caption or UITheme.FontSize.body
+	local weaponFontSize = mobile and UITheme.FontSize.micro or UITheme.FontSize.caption
 
 	-- Outer wrapper used for slide-in animation (translate via Position)
 	local entry = Instance.new("Frame")
-	entry.Size = UDim2.new(0, 0, 0, ENTRY_HEIGHT)
+	entry.Size = UDim2.new(0, 0, 0, entryH)
 	entry.AutomaticSize = Enum.AutomaticSize.X
 	entry.BackgroundColor3 = UITheme.Color.bgElevated
-	entry.BackgroundTransparency = 0.08
+	entry.BackgroundTransparency = ENTRY_BG_TRANSPARENCY
 	entry.BorderSizePixel = 0
 	entry.LayoutOrder = -tick()
 	entry.ClipsDescendants = false
@@ -165,7 +200,7 @@ local function buildEntry(info: any)
 	killerLbl.AutomaticSize = Enum.AutomaticSize.X
 	killerLbl.BackgroundTransparency = 1
 	killerLbl.Font = UITheme.Font.heading
-	killerLbl.TextSize = UITheme.FontSize.body
+	killerLbl.TextSize = nameFontSize
 	killerLbl.TextColor3 = isLocalKill and UITheme.Color.accentPrimary or UITheme.Color.success
 	killerLbl.Text = info.killer or "?"
 	killerLbl.LayoutOrder = 1
@@ -178,7 +213,7 @@ local function buildEntry(info: any)
 	weaponLbl.AutomaticSize = Enum.AutomaticSize.X
 	weaponLbl.BackgroundTransparency = 1
 	weaponLbl.Font = UITheme.Font.heading
-	weaponLbl.TextSize = UITheme.FontSize.caption
+	weaponLbl.TextSize = weaponFontSize
 	weaponLbl.TextColor3 = tierColor
 	weaponLbl.Text = string.format("%s %s %s", "▸", info.weapon or "Kill", "▸")
 	weaponLbl.LayoutOrder = 2
@@ -212,7 +247,7 @@ local function buildEntry(info: any)
 	victimLbl.AutomaticSize = Enum.AutomaticSize.X
 	victimLbl.BackgroundTransparency = 1
 	victimLbl.Font = UITheme.Font.heading
-	victimLbl.TextSize = UITheme.FontSize.body
+	victimLbl.TextSize = nameFontSize
 	victimLbl.TextColor3 = isLocalDeath and UITheme.Color.accentSecondary or UITheme.Color.danger
 	victimLbl.Text = info.victim or "?"
 	victimLbl.LayoutOrder = 4
