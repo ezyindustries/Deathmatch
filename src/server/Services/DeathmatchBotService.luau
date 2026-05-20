@@ -747,20 +747,28 @@ local function spawnBotsToFill()
 			continue
 		end
 		local bot: Model = botOrErr :: Model
-		-- Pick spawn: closest-to-player for first 2 bots (visibility diagnostic),
-		-- random for the rest so the arena stays populated across the map.
-		local sp: BasePart
-		if sortedNearPlayer and i <= 2 and sortedNearPlayer[i] then
-			sp = sortedNearPlayer[i]
+		-- DIAGNOSTIC SPAWN: when a player is in the arena, place the first 6
+		-- bots in a ring directly around them (radius ~15 studs). This bypasses
+		-- the map's spawn points entirely so it works even on maps with gaps,
+		-- elevated platforms (rooftop), or floors that bots tend to fall off.
+		-- Remaining bots use the regular spawn points + small jitter.
+		local targetCF: CFrame
+		if refPos and i <= 6 then
+			local angle = (i / 6) * math.pi * 2
+			local offset = Vector3.new(math.cos(angle) * 15, 3, math.sin(angle) * 15)
+			targetCF = CFrame.new(refPos + offset)
 		else
-			sp = spawns[math.random(#spawns)]
+			local sp: BasePart
+			if sortedNearPlayer and i <= 2 and sortedNearPlayer[i] then
+				sp = sortedNearPlayer[i]
+			else
+				sp = spawns[math.random(#spawns)]
+			end
+			-- ±5 studs jitter — narrow enough to stay on the arena floor.
+			local jitterX = (math.random() - 0.5) * 10
+			local jitterZ = (math.random() - 0.5) * 10
+			targetCF = sp.CFrame + Vector3.new(jitterX, 5, jitterZ)
 		end
-		-- With 20 bots and only 6 spawn points (~3 bots per spawn), we widen
-		-- the jitter so they don't all stack inside the same 6-stud square.
-		-- ±15 studs gives a 30×30 spread per spawn — enough breathing room.
-		local jitterX = (math.random() - 0.5) * 30
-		local jitterZ = (math.random() - 0.5) * 30
-		local targetCF = sp.CFrame + Vector3.new(jitterX, 5, jitterZ)
 		placeBotAt(bot, targetCF)
 		table.insert(bots, bot)
 		botState[bot] = newAIState()
@@ -794,6 +802,34 @@ end
 -- pass (~3Hz) for movement decisions / strafe re-rolls. Splitting keeps the
 -- shooting reactive without re-pathing every loop.
 --
+-- Void watchdog: every 2 seconds, scan bots and force-rebuild any whose HRP
+-- has dropped below y=-100. Roblox's FallenPartsDestroyHeight should kill
+-- characters that fall too far, but ModelStreamingMode=Persistent overrides
+-- that — so void-fallen bots stay parented at y=-1000000 with HP intact,
+-- which causes findNearestTarget to still consider them (and the player to
+-- "feel alone" because half the bots are off-map). The watchdog kicks them
+-- through rebuildBot, which respawns them at a fresh arena spawn point.
+task.spawn(function()
+	while true do
+		task.wait(2)
+		pcall(function()
+			for _, bot in bots do
+				if not bot.Parent then continue end
+				local hrp = bot:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if hrp and hrp.Position.Y < -100 then
+					print(string.format(
+						"[DEBUG-BOT] Void-fallen bot %s @ y=%d — forcing rebuild",
+						bot.Name, math.floor(hrp.Position.Y)
+					))
+					-- Force respawn by killing the Humanoid; Died hook will rebuild.
+					local hum = bot:FindFirstChildOfClass("Humanoid")
+					if hum then hum.Health = 0 end
+				end
+			end
+		end)
+	end
+end)
+
 -- Wrapped in pcall per-iteration: an unhandled error inside botBehavior or
 -- tryFireAt previously would kill the entire AI thread, leaving bots in the
 -- scoreboard but motionless. We now log and continue.

@@ -21,6 +21,16 @@ local KILL_Y = -200
 local SPAWN_PROTECTION_SECONDS = 2
 local arenaFolder: Folder? = nil
 
+-- Sweep at service load: kill any pre-existing "ActiveArena" folders saved
+-- into the place file (deathmatch.rbxl). These ghost folders are empty but
+-- their presence makes Workspace:FindFirstChild("ActiveArena") return them
+-- instead of our runtime arena — breaking bot spawn fallback.
+for _, c in Workspace:GetChildren() do
+	if c.Name == "ActiveArena" and c:IsA("Folder") then
+		c:Destroy()
+	end
+end
+
 type LightingPreset = {
 	Ambient: Color3,
 	OutdoorAmbient: Color3,
@@ -130,6 +140,16 @@ local function teardownArena()
 	if arenaFolder then
 		arenaFolder:Destroy()
 		arenaFolder = nil
+	end
+	-- Also purge any STRAY "ActiveArena" folders left in Workspace by previous
+	-- sessions or by the persisted deathmatch.rbxl place file. Without this,
+	-- FindFirstChild("ActiveArena") elsewhere can hit the empty stub instead
+	-- of our live arena — which made getArenaSpawnPoints return zero spawns
+	-- mid-match, so bots that fell into the void couldn't respawn.
+	for _, c in Workspace:GetChildren() do
+		if c.Name == "ActiveArena" and c:IsA("Folder") then
+			c:Destroy()
+		end
 	end
 	if DEFAULT_LIGHTING then
 		applyLighting(DEFAULT_LIGHTING)
