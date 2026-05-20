@@ -177,11 +177,17 @@ statusLabel.Text = ""
 statusLabel.Parent = statusBanner
 
 -- ============= card building =============
--- Card dimensions are responsive — mobile shrinks cards from 280x360 → 180x210
--- so 3 cards + 2 gaps = 580w fits within 666px viewport with 43px margin per
--- side. Vertical also 210h leaves room for header (~y=20-80) + timer (~y=290).
+-- Card dimensions are responsive. Targets per breakpoint:
+--   ultra-mobile (vw <  600, iPhone 4S 480×320): 110×140, gap 4 → 3×110+2*4=338 ≤ 480
+--   mobile       (vw <  900, iPhone 7+ etc):     180×210, gap 8 → 3×180+2*8=556 ≤ 666
+--   tablet       (vw < 1300):                     240×300, gap 16
+--   desktop:                                      280×360, gap 20
 local function getCardDims(): (number, number, number)
-	if isMobileVP() then
+	local cam = Workspace.CurrentCamera
+	local vw = cam and cam.ViewportSize.X or 1920
+	if vw < 600 then
+		return 110, 140, UITheme.Space.xs -- 4px gap — iPhone 4S 480×320
+	elseif isMobileVP() then
 		return 180, 210, UITheme.Space.s -- 8px gap
 	elseif isTabletVP() then
 		return 240, 300, UITheme.Space.l -- 16px gap
@@ -367,8 +373,29 @@ local function applyVotingResponsive()
 	local mobile = isMobileVP()
 	local tablet = isTabletVP()
 	local vw = getViewportW()
+	local ultraMobile = vw < 600 -- iPhone 4S 480×320 etc.
 
-	if mobile then
+	if ultraMobile then
+		-- iPhone 4S budget: 480w × 320h. 3 cards 110×140 + 2*4 = 338w fits.
+		-- Header shrunk to micro stack; timer just a number row at bottom.
+		headerLabel.TextSize = UITheme.FontSize.body -- 15
+		headerLabel.Size = UDim2.new(0, math.min(400, vw - 40), 0, 20)
+		headerLabel.Position = UDim2.new(0.5, 0, 0, UITheme.Space.xs) -- y=4
+		subLabel.TextSize = UITheme.FontSize.micro -- 11
+		subLabel.Size = UDim2.new(0, math.min(400, vw - 40), 0, 14)
+		subLabel.Position = UDim2.new(0.5, 0, 0, 24)
+		timerFrame.Size = UDim2.new(0, 80, 0, 36)
+		timerFrame.Position = UDim2.new(0.5, 0, 1, -UITheme.Space.xs)
+		timerLabel.TextSize = 8
+		timerNumber.TextSize = 18
+		timerNumber.Size = UDim2.new(1, 0, 0, 22)
+		timerNumber.Position = UDim2.new(0, 0, 0, 12)
+		container.Size = UDim2.new(0, 3 * 110 + 2 * 4, 0, 140)
+		container.Position = UDim2.new(0.5, 0, 0.5, 0)
+		layout.Padding = UDim.new(0, UITheme.Space.xs)
+		statusBanner.Size = UDim2.new(0, math.min(400, vw - 40), 0, 48)
+		statusLabel.TextSize = 13
+	elseif mobile then
 		headerLabel.TextSize = UITheme.FontSize.h2 -- 28 (was 42)
 		headerLabel.Size = UDim2.new(0, math.min(560, vw - 60), 0, 32)
 		headerLabel.Position = UDim2.new(0.5, 0, 0, UITheme.Space.s) -- y=8

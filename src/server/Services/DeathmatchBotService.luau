@@ -88,6 +88,42 @@ local function clearTargetLock(state: BotAIState)
 	state.burstRemaining = 0
 end
 
+-- DIAGNOSTIC MODE: spawn bots within ~30 studs of the first live player so the
+-- player can immediately see them and confirm rendering works on their device.
+-- Set to false once bots are visually confirmed in production.
+local SPAWN_NEAR_PLAYER = true
+
+-- Sort arena spawn points by distance to a given world position (ascending).
+local function spawnsByDistanceTo(pos: Vector3): { BasePart }
+	local arena = Workspace:FindFirstChild("ActiveArena")
+	if not arena then return {} end
+	local spawnsFolder = arena:FindFirstChild("Spawns")
+	if not spawnsFolder then return {} end
+	local result: { BasePart } = {}
+	for _, child in spawnsFolder:GetChildren() do
+		if child:IsA("BasePart") then table.insert(result, child) end
+	end
+	table.sort(result, function(a, b)
+		return (a.Position - pos).Magnitude < (b.Position - pos).Magnitude
+	end)
+	return result
+end
+
+-- Try to find a "reference position" the bots should spawn near. Priority:
+--   1. First live player's HRP (when SPAWN_NEAR_PLAYER and players exist)
+--   2. nil → caller falls back to random arena spawns.
+local function findReferencePlayerPos(): Vector3?
+	if not SPAWN_NEAR_PLAYER then return nil end
+	for _, p in Players:GetPlayers() do
+		local char = p.Character
+		local hrp = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if hrp and hrp.Position.Y > -100 then
+			return hrp.Position
+		end
+	end
+	return nil
+end
+
 local function getArenaSpawnPoints(): { BasePart }
 	local arena = Workspace:FindFirstChild("ActiveArena")
 	if not arena then return {} end
@@ -667,6 +703,21 @@ local function spawnBotsToFill()
 	local playerCount = #Players:GetPlayers()
 	local botsNeeded = math.max(0, TARGET_PLAYER_COUNT - playerCount)
 	print(string.format("[DeathmatchBot] Spawning %d bots (players: %d, target: %d)", botsNeeded, playerCount, TARGET_PLAYER_COUNT))
+	-- Diagnostic mode: if a player is alive in arena, prefer the spawn points
+	-- closest to them for the first 2 bots so they're visible immediately.
+	-- Remaining bots fall back to random spawns to keep the arena populated.
+	local refPos = findReferencePlayerPos()
+	local sortedNearPlayer: { BasePart }? = nil
+	if refPos then
+		sortedNearPlayer = spawnsByDistanceTo(refPos)
+		print(string.format(
+			"[DEBUG-BOT] SPAWN_NEAR_PLAYER active. Player at %s; closest spawn = %s (%.1f studs)",
+			tostring(refPos),
+			tostring(sortedNearPlayer[1] and sortedNearPlayer[1].Name),
+			sortedNearPlayer[1] and (sortedNearPlayer[1].Position - refPos).Magnitude or -1
+		))
+	end
+
 	for i = 1, botsNeeded do
 		nameIndex = (nameIndex % #botNames) + 1
 		local name = botNames[nameIndex] .. "_" .. tostring(i)
@@ -676,8 +727,14 @@ local function spawnBotsToFill()
 			continue
 		end
 		local bot: Model = botOrErr :: Model
-		-- Random spawn + jitter to avoid overlap when bots > spawns
-		local sp = spawns[math.random(#spawns)]
+		-- Pick spawn: closest-to-player for first 2 bots (visibility diagnostic),
+		-- random for the rest so the arena stays populated across the map.
+		local sp: BasePart
+		if sortedNearPlayer and i <= 2 and sortedNearPlayer[i] then
+			sp = sortedNearPlayer[i]
+		else
+			sp = spawns[math.random(#spawns)]
+		end
 		local jitterX = (math.random() - 0.5) * 6
 		local jitterZ = (math.random() - 0.5) * 6
 		local targetCF = sp.CFrame + Vector3.new(jitterX, 5, jitterZ)
@@ -792,5 +849,60 @@ local function rebalanceIfMatch()
 end
 Players.PlayerAdded:Connect(rebalanceIfMatch)
 Players.PlayerRemoving:Connect(rebalanceIfMatch)
+
+-- DIAGNOSTIC: when a player spawns into the arena, teleport up to 2 nearby
+-- bots to within ~25 studs of them so the player can immediately see at
+-- least one bot. Only fires when SPAWN_NEAR_PLAYER is true (diagnostic mode).
+local function relocateBotsNearPlayer(char: Model)
+	if not SPAWN_NEAR_PLAYER then return end
+	if MatchStateService.GetState().state ~= MatchState.States.MATCH then return end
+	if MatchStateService.GetGamemode() ~= "deathmatch" then return end
+	task.wait(0.5) -- let character physics settle
+	local hrp = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not hrp or hrp.Position.Y < -100 then return end
+	-- Find 2 alive bots farthest from the player, move them close.
+	local candidates: { Model } = {}
+	for _, bot in bots do
+		local hum = bot:FindFirstChildOfClass("Humanoid")
+		local bhrp = bot:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if hum and bhrp and hum.Health > 0 then
+			table.insert(candidates, bot)
+		end
+	end
+	if #candidates == 0 then
+		print("[DEBUG-BOT] relocateBotsNearPlayer: no live bots to move")
+		return
+	end
+	-- Sort farthest-first so we move the bot that's least likely to be in
+	-- visual range already; up to 2.
+	table.sort(candidates, function(a, b)
+		local ah = a:FindFirstChild("HumanoidRootPart") :: BasePart
+		local bh = b:FindFirstChild("HumanoidRootPart") :: BasePart
+		return (ah.Position - hrp.Position).Magnitude > (bh.Position - hrp.Position).Magnitude
+	end)
+	-- Offsets in a small ring around the player (~20 studs out)
+	local offsets = { Vector3.new(18, 3, 0), Vector3.new(-18, 3, 6) }
+	for i = 1, math.min(2, #candidates) do
+		local bot = candidates[i]
+		local target = hrp.Position + offsets[i]
+		local bhrp = bot:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if bhrp then
+			pcall(function() bot:PivotTo(CFrame.new(target)) end)
+			print(string.format(
+				"[DEBUG-BOT] Relocated %s to %s (was %.1f studs from player)",
+				bot.Name, tostring(target),
+				(bhrp.Position - hrp.Position).Magnitude
+			))
+		end
+	end
+end
+
+Players.PlayerAdded:Connect(function(p: Player)
+	p.CharacterAdded:Connect(relocateBotsNearPlayer)
+end)
+for _, p in Players:GetPlayers() do
+	p.CharacterAdded:Connect(relocateBotsNearPlayer)
+	if p.Character then task.spawn(relocateBotsNearPlayer, p.Character) end
+end
 
 return DeathmatchBotService

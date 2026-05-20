@@ -94,12 +94,12 @@ function BotModel.Build(name: string, maxHealth: number, colors: BotColors?): Mo
 	-- reported bug). Persistent streaming bypasses Roblox's per-Part visibility
 	-- culling for this Model's descendants.
 	model.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
-	-- Belt-and-suspenders: elevate streaming priority so the model is among
-	-- the FIRST instances streamed in when a mobile client connects. Default
-	-- priority is 0; positive values are streamed earlier. On weaker mobile
-	-- devices with high latency, this reduces the window where the bot exists
-	-- server-side but hasn't replicated client-side yet.
-	model.StreamingPriority = 1
+	-- NOTE: previously also set model.StreamingPriority = 1 here, but that
+	-- property doesn't exist on Model in the current Roblox API — every call
+	-- threw "StreamingPriority is not a valid member of Model" inside the
+	-- pcall, making BotModel.Build fail silently and producing the
+	-- "no bots in arena" symptom the user reported. ModelStreamingMode =
+	-- Persistent alone is the documented replication override.
 
 	local function motor(p0: BasePart, p1: BasePart, c0: CFrame, c1: CFrame, motorName: string)
 		local m = Instance.new("Motor6D")
