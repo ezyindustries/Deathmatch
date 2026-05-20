@@ -449,16 +449,32 @@ rebuildBot = function(oldBot: Model)
 	if #spawns == 0 then return end
 	local sp = spawns[math.random(#spawns)]
 
-	local bot = BotModel.Build(name, BOT_HEALTH)
-	-- PivotTo BEFORE Parent: avoids a physics-race where the unanchored
-	-- Humanoid starts simulating at world origin (0,0,0) inside the lobby
-	-- baseplate before being moved to the arena spawn.
-	bot:PivotTo(sp.CFrame + Vector3.new(0, 5, 0))
+	local okBuild, botOrErr = pcall(BotModel.Build, name, BOT_HEALTH)
+	if not okBuild then
+		warn(string.format("[DeathmatchBot] rebuildBot: Build failed for %s: %s", name, tostring(botOrErr)))
+		return
+	end
+	local bot: Model = botOrErr :: Model
+	-- Use the proven Parent → CFrame → PivotTo pattern (see placeBotAt
+	-- comment above for why PivotTo-before-Parent was unreliable).
+	local hrp = bot:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local targetCF = sp.CFrame + Vector3.new(0, 5, 0)
+	if hrp then
+		hrp.CFrame = targetCF
+	end
 	bot.Parent = Workspace
+	pcall(function()
+		bot:PivotTo(targetCF)
+	end)
 	bots[oldIdx] = bot
 	botState[bot] = newAIState()
-	local muzzle = BotModel.EquipRifle(bot)
-	if muzzle then botMuzzle[bot] = muzzle end
+	local okEquip, muzzleOrErr = pcall(BotModel.EquipRifle, bot)
+	if okEquip then
+		local muzzle = muzzleOrErr :: Attachment?
+		if muzzle then botMuzzle[bot] = muzzle end
+	else
+		warn(string.format("[DeathmatchBot] rebuildBot: EquipRifle failed for %s: %s", name, tostring(muzzleOrErr)))
+	end
 	BotAnimator.Register(bot)
 	-- Re-hook death so this fresh bot also respawns on its next death
 	local hum = bot:FindFirstChildOfClass("Humanoid")
@@ -469,6 +485,12 @@ rebuildBot = function(oldBot: Model)
 			end)
 		end)
 	end
+	print(string.format(
+		"[DEBUG-BOT] Rebuilt %s — parented: %s, HRP pos: %s",
+		name,
+		tostring(bot.Parent ~= nil),
+		tostring(bot.PrimaryPart and bot.PrimaryPart.Position or "no-PrimaryPart")
+	))
 end
 
 local function setupBot(bot: Model)
@@ -493,6 +515,32 @@ local function clearBots()
 	table.clear(botMuzzle)
 end
 
+-- Position a freshly built bot at the given target CFrame. This is the
+-- belt-and-suspenders sequence: set HRP CFrame directly, parent, then
+-- PivotTo as a final safety. Previous "PivotTo-before-Parent" approach
+-- (commit f5c2f0c) was unreliable because PivotTo on an unparented Model
+-- doesn't always rigidly translate every BasePart when those parts are
+-- not yet joined together in physics space — bots would silently spawn
+-- at (0,0,0), fall through the lobby into the void, and be
+-- auto-destroyed by FallenPartsDestroyHeight (-500). The scoreboard
+-- entry survived (ScoringService.RegisterBot already ran) but the model
+-- was gone. This sequence matches the proven pattern used in
+-- DMRoomService / CasualBotService.
+local function placeBotAt(bot: Model, targetCF: CFrame)
+	local hrp = bot:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if hrp then
+		-- Anchor briefly so the part stays put while we configure the model.
+		-- This is dropped before Parent so physics can drive the Humanoid.
+		hrp.CFrame = targetCF
+	end
+	bot.Parent = Workspace
+	-- Final safety: PivotTo after Parent (the proven order). If anything
+	-- nudged the parts during Parent, this re-snaps them as a group.
+	pcall(function()
+		bot:PivotTo(targetCF)
+	end)
+end
+
 local function spawnBotsToFill()
 	-- Retry up to 10 times waiting for arena spawns (max ~5 seconds total)
 	local spawns = getArenaSpawnPoints()
@@ -503,11 +551,22 @@ local function spawnBotsToFill()
 		spawns = getArenaSpawnPoints()
 		retries += 1
 	end
+	-- DEBUG: snapshot of preconditions at spawn time
+	local arenaExists = Workspace:FindFirstChild("ActiveArena") ~= nil
+	print(string.format(
+		"[DEBUG-BOT] Match state: %s, gamemode: %s, players: %d, ActiveArena exists: %s",
+		tostring(MatchStateService.GetState().state),
+		tostring(MatchStateService.GetGamemode()),
+		#Players:GetPlayers(),
+		tostring(arenaExists)
+	))
 	if #spawns == 0 then
-		warn("[DeathmatchBot] Arena spawns NEVER appeared! ActiveArena exists: " .. tostring(Workspace:FindFirstChild("ActiveArena") ~= nil))
+		warn("[DeathmatchBot] Arena spawns NEVER appeared! ActiveArena exists: " .. tostring(arenaExists))
 		return
 	end
-	print(string.format("[DeathmatchBot] Found %d arena spawn points", #spawns))
+	print(string.format("[DEBUG-BOT] Found %d arena spawn points", #spawns))
+	-- Log a sample spawn position so we can sanity-check coordinates
+	print(string.format("[DEBUG-BOT] First spawn position: %s", tostring(spawns[1].Position)))
 	clearBots()
 	local playerCount = #Players:GetPlayers()
 	local botsNeeded = math.max(0, TARGET_PLAYER_COUNT - playerCount)
@@ -515,61 +574,88 @@ local function spawnBotsToFill()
 	for i = 1, botsNeeded do
 		nameIndex = (nameIndex % #botNames) + 1
 		local name = botNames[nameIndex] .. "_" .. tostring(i)
-		local bot = BotModel.Build(name, BOT_HEALTH)
+		local okBuild, botOrErr = pcall(BotModel.Build, name, BOT_HEALTH)
+		if not okBuild then
+			warn(string.format("[DeathmatchBot] BotModel.Build failed for %s: %s", name, tostring(botOrErr)))
+			continue
+		end
+		local bot: Model = botOrErr :: Model
 		-- Random spawn + jitter to avoid overlap when bots > spawns
 		local sp = spawns[math.random(#spawns)]
 		local jitterX = (math.random() - 0.5) * 6
 		local jitterZ = (math.random() - 0.5) * 6
-		-- PivotTo BEFORE Parent: avoids a physics-race where the unanchored
-		-- Humanoid starts simulating at world origin (0,0,0) inside the lobby
-		-- baseplate before being moved to the arena spawn.
-		bot:PivotTo(sp.CFrame + Vector3.new(jitterX, 5, jitterZ))
-		bot.Parent = Workspace
+		local targetCF = sp.CFrame + Vector3.new(jitterX, 5, jitterZ)
+		placeBotAt(bot, targetCF)
 		table.insert(bots, bot)
 		botState[bot] = newAIState()
-		-- Equip rifle + cache muzzle for tracer origin
-		local muzzle = BotModel.EquipRifle(bot)
-		if muzzle then botMuzzle[bot] = muzzle end
+		-- Equip rifle + cache muzzle for tracer origin. EquipRifle creates
+		-- new welded parts; wrap in pcall so a single broken weld can't
+		-- abort the rest of the spawn loop.
+		local okEquip, muzzleOrErr = pcall(BotModel.EquipRifle, bot)
+		if okEquip then
+			local muzzle = muzzleOrErr :: Attachment?
+			if muzzle then botMuzzle[bot] = muzzle end
+		else
+			warn(string.format("[DeathmatchBot] EquipRifle failed for %s: %s", name, tostring(muzzleOrErr)))
+		end
 		BotAnimator.Register(bot)
 		setupBot(bot)
 		ScoringService.RegisterBot(name)
-		print(string.format("[DeathmatchBot] Spawned %s at %s", name, tostring(sp.Position)))
+		-- DEBUG: confirm parenting + position landed correctly
+		local hrp = bot:FindFirstChild("HumanoidRootPart") :: BasePart?
+		print(string.format(
+			"[DEBUG-BOT] Spawned %s — parented: %s, PrimaryPart: %s, HRP pos: %s, target was: %s",
+			name,
+			tostring(bot.Parent ~= nil),
+			tostring(bot.PrimaryPart and bot.PrimaryPart.Name or "nil"),
+			tostring(hrp and hrp.Position or "no-HRP"),
+			tostring(targetCF.Position)
+		))
 	end
 end
 
 -- Two-axis tick: fast fire pass (~10Hz) for responsive bursts, slower behavior
 -- pass (~3Hz) for movement decisions / strafe re-rolls. Splitting keeps the
 -- shooting reactive without re-pathing every loop.
+--
+-- Wrapped in pcall per-iteration: an unhandled error inside botBehavior or
+-- tryFireAt previously would kill the entire AI thread, leaving bots in the
+-- scoreboard but motionless. We now log and continue.
 task.spawn(function()
 	while true do
 		task.wait(0.1)
-		local now = os.clock()
-		for _, bot in bots do
-			if not bot.Parent then continue end
-			local hum = bot:FindFirstChildOfClass("Humanoid")
-			if not hum or hum.Health <= 0 then continue end
-			local state = botState[bot]
-			if not state then
-				state = newAIState()
-				botState[bot] = state
-			end
+		local ok, err = pcall(function()
+			local now = os.clock()
+			for _, bot in bots do
+				if not bot.Parent then continue end
+				local hum = bot:FindFirstChildOfClass("Humanoid")
+				if not hum or hum.Health <= 0 then continue end
+				local state = botState[bot]
+				if not state then
+					state = newAIState()
+					botState[bot] = state
+				end
 
-			-- Behavior tick (movement / strafe / objective)
-			if now - (lastBehaviorAt[bot] or 0) >= BEHAVIOR_INTERVAL then
-				botBehavior(bot, state)
-				lastBehaviorAt[bot] = now
-			end
+				-- Behavior tick (movement / strafe / objective)
+				if now - (lastBehaviorAt[bot] or 0) >= BEHAVIOR_INTERVAL then
+					botBehavior(bot, state)
+					lastBehaviorAt[bot] = now
+				end
 
-			-- Fire tick every loop pass; tryFireAt respects nextFireAt + reaction delay.
-			local hrp = bot:FindFirstChild("HumanoidRootPart") :: BasePart?
-			if hrp then
-				local targetChar, targetHRP, targetHum, targetType, targetId = findNearestTarget(bot, hrp.Position)
-				if targetChar and targetHRP and targetHum and targetType then
-					tryFireAt(bot, state, targetChar, targetHRP, targetHum, targetType, targetId)
-				else
-					clearTargetLock(state)
+				-- Fire tick every loop pass; tryFireAt respects nextFireAt + reaction delay.
+				local hrp = bot:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if hrp then
+					local targetChar, targetHRP, targetHum, targetType, targetId = findNearestTarget(bot, hrp.Position)
+					if targetChar and targetHRP and targetHum and targetType then
+						tryFireAt(bot, state, targetChar, targetHRP, targetHum, targetType, targetId)
+					else
+						clearTargetLock(state)
+					end
 				end
 			end
+		end)
+		if not ok then
+			warn("[DeathmatchBot] AI tick error (continuing): " .. tostring(err))
 		end
 	end
 end)
