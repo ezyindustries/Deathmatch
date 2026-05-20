@@ -575,7 +575,13 @@ secondaryChip.MouseButton1Click:Connect(function()
 	Remotes.SwitchWeapon:FireServer("secondary")
 end)
 
--- Ammo display (above slot panel)
+-- Ammo display (above slot panel).
+-- Default position sits 20px from right, 92px from bottom. On mobile the
+-- bottom-right FIRE button (100x100, anchored bottom-right at offset -100,-180)
+-- collides with this ammo panel's right edge (the FIRE button covers x: -100..0
+-- from right; the ammo panel covers x: -200..-20). User report: "FIRE button
+-- overlaps ammo counter on narrow screens" — fix by shifting ammo LEFT past the
+-- FIRE button's width on touch devices (see mobile-detection block below).
 local ammoPanel = Instance.new("Frame")
 ammoPanel.Size = UDim2.new(0, 180, 0, 56)
 ammoPanel.AnchorPoint = Vector2.new(1, 1)
@@ -585,6 +591,22 @@ ammoPanel.BackgroundTransparency = 0.25
 ammoPanel.BorderSizePixel = 0
 ammoPanel.Visible = false
 ammoPanel.Parent = screenGui
+
+-- Mobile-only: shift ammo panel LEFT to clear the FIRE button (100px wide,
+-- anchored bottom-right). 100 (fire width) + 24 (gap) = -124 px from right.
+-- Detection is done up-front since the device touch capability is static
+-- across the session.
+do
+	local _uis = UserInputService
+	local isMobileDevice = _uis.TouchEnabled and not _uis.MouseEnabled
+	if isMobileDevice then
+		-- FIRE button = 100x100 placed at (1, -100, 1, -180) → its left edge
+		-- sits 100px from the right. Shift ammo so its right edge clears that
+		-- + a small gap, and lift it slightly so it doesn't visually crowd
+		-- the FIRE circle from below.
+		ammoPanel.Position = UDim2.new(1, -124, 1, -92)
+	end
+end
 
 local ammoCorner = Instance.new("UICorner")
 ammoCorner.CornerRadius = UDim.new(0, 10)

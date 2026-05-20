@@ -4,6 +4,7 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
+local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared.Modules.Remotes)
@@ -18,6 +19,11 @@ local ENTRY_LIFETIME = 4
 local ENTRY_HEIGHT = 44   -- meets 44px mobile touch guideline (even tho non-interactive, looks bigger)
 local ENTRY_MAX_W_DESKTOP = 420
 local ENTRY_MAX_W_MOBILE = 320
+-- WeaponController places the mobile FIRE button anchored bottom-right at
+-- (-100, -180) with size 100x100. KillFeed entries are anchored top-right and
+-- can grow tall enough to overlap the FIRE button's top edge — shift the whole
+-- container LEFT by the FIRE button width + a margin to clear the tap target.
+local FIRE_BUTTON_WIDTH = 100
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -29,6 +35,10 @@ screenGui.IgnoreGuiInset = true
 screenGui.DisplayOrder = 80
 screenGui.Parent = playerGui
 
+local function isMobileDevice(): boolean
+	return UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+end
+
 local container = Instance.new("Frame")
 container.Size = UDim2.new(0, ENTRY_MAX_W_DESKTOP + 8, 0, 260)
 container.AnchorPoint = Vector2.new(1, 0)
@@ -36,12 +46,22 @@ container.Position = UDim2.new(1, -UITheme.Space.xl, 0, UITheme.Space.x5l + UITh
 container.BackgroundTransparency = 1
 container.Parent = screenGui
 
--- Responsive container width: narrower on mobile so it doesn't crowd the screen
+-- Responsive container position + width.
+-- Width: narrower on mobile so it doesn't crowd the screen.
+-- X-position: on mobile, also shift LEFT by the FIRE button width so kill
+-- entries don't extend into the FIRE tap target on the right edge.
 local function refreshContainerSize()
 	local cam = Workspace.CurrentCamera
 	local vw = cam and cam.ViewportSize.X or 1920
-	local w = vw < 700 and (ENTRY_MAX_W_MOBILE + 8) or (ENTRY_MAX_W_DESKTOP + 8)
+	local mobileViewport = vw < 700
+	local w = mobileViewport and (ENTRY_MAX_W_MOBILE + 8) or (ENTRY_MAX_W_DESKTOP + 8)
 	container.Size = UDim2.new(0, w, 0, 260)
+
+	local rightOffset = UITheme.Space.xl
+	if isMobileDevice() then
+		rightOffset = FIRE_BUTTON_WIDTH + UITheme.Space.xl
+	end
+	container.Position = UDim2.new(1, -rightOffset, 0, UITheme.Space.x5l + UITheme.Space.x3l)
 end
 refreshContainerSize()
 if Workspace.CurrentCamera then
