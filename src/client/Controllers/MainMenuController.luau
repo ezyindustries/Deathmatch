@@ -11,12 +11,25 @@ local UserInputService = game:GetService("UserInputService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared.Modules.Remotes)
 local ClientSignals = require(Shared.Modules.ClientSignals)
+local UITheme = require(Shared.Modules.UITheme)
 
 local MainMenuController = {}
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local camera = Workspace.CurrentCamera
+
+-- ============================================================
+-- RESPONSIVE BREAKPOINTS (viewport-X based, Studio Device Emulator-friendly).
+-- TouchEnabled is unreliable in the emulator, so we use viewport width.
+-- Recomputed inside layout helpers and bound to ViewportSize changes.
+-- ============================================================
+local function getViewportW(): number
+	local cam = Workspace.CurrentCamera
+	return (cam and cam.ViewportSize.X) or 1920
+end
+local function isMobileVP(): boolean return getViewportW() < 700 end
+local function isTabletVP(): boolean return getViewportW() < 1100 end
 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "MainMenu"
@@ -312,14 +325,16 @@ vig2Grad.Transparency = NumberSequence.new({
 vig2Grad.Rotation = 90
 vig2Grad.Parent = vignette2
 
--- Title (top center)
+-- Title (top center) — responsive size. Mobile fits within ~666px viewport
+-- without overlapping the rank chip top-left (~140px wide). Title text size
+-- maps display(48) → h1(36) → h2(28) at desktop/tablet/mobile.
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(0, 600, 0, 80)
 title.AnchorPoint = Vector2.new(0.5, 0)
 title.Position = UDim2.new(0.5, 0, 0, 40)
 title.BackgroundTransparency = 1
-title.Font = Enum.Font.GothamBlack
-title.TextSize = 60
+title.Font = UITheme.Font.display
+title.TextSize = UITheme.FontSize.display -- desktop default, refreshed below
 title.TextColor3 = Color3.fromRGB(255, 240, 200)
 title.TextStrokeColor3 = Color3.fromRGB(180, 130, 50) -- amber/gold stroke (armory)
 title.TextStrokeTransparency = 0.3
@@ -332,15 +347,15 @@ subtitle.Size = UDim2.new(0, 400, 0, 20)
 subtitle.AnchorPoint = Vector2.new(0.5, 0)
 subtitle.Position = UDim2.new(0.5, 0, 0, 115)
 subtitle.BackgroundTransparency = 1
-subtitle.Font = Enum.Font.Gotham
-subtitle.TextSize = 14
+subtitle.Font = UITheme.Font.body
+subtitle.TextSize = UITheme.FontSize.caption
 subtitle.TextColor3 = Color3.fromRGB(220, 180, 130)
 subtitle.Text = "TACTICAL DEATHMATCH"
 subtitle.Parent = screenGui
 
 -- ===== Center column: Mode cards (visible at once) + PLAY button =====
 local centerCol = Instance.new("Frame")
-centerCol.Size = UDim2.new(0, 560, 0, 320)
+centerCol.Size = UDim2.new(0, 560, 0, 320) -- refreshed in applyResponsiveLayout()
 centerCol.AnchorPoint = Vector2.new(0.5, 0.5)
 centerCol.Position = UDim2.new(0.5, 0, 0.5, -10)
 centerCol.BackgroundTransparency = 1
@@ -351,8 +366,8 @@ local sectionLbl = Instance.new("TextLabel")
 sectionLbl.Size = UDim2.new(1, 0, 0, 18)
 sectionLbl.Position = UDim2.new(0, 0, 0, 0)
 sectionLbl.BackgroundTransparency = 1
-sectionLbl.Font = Enum.Font.GothamBold
-sectionLbl.TextSize = 11
+sectionLbl.Font = UITheme.Font.heading
+sectionLbl.TextSize = UITheme.FontSize.micro
 sectionLbl.TextColor3 = Color3.fromRGB(180, 150, 100)
 sectionLbl.TextXAlignment = Enum.TextXAlignment.Center
 sectionLbl.Text = "— SELECT GAME MODE —"
@@ -383,8 +398,25 @@ local currentModeIndex = 1
 local modeCards: { TextButton } = {}
 local modeStrokes: { UIStroke } = {}
 
-local CARD_WIDTH = 260
-local CARD_GAP = 20
+-- Mode card geometry is responsive (recomputed in applyResponsiveLayout).
+-- Mobile (vw<700): 180x100 — fits two cards side-by-side on iPhone 7 landscape
+-- (666x374) with margin to spare for the side-button columns + rank chip.
+-- Tablet (vw<1100): 220x120. Desktop: 260x160.
+local function getCardDims(): (number, number, number)
+	local w, h, gap
+	if isMobileVP() then
+		w, h, gap = 180, 100, UITheme.Space.m -- 12
+	elseif isTabletVP() then
+		w, h, gap = 220, 120, UITheme.Space.l -- 16
+	else
+		w, h, gap = 260, 160, UITheme.Space.xl -- 20
+	end
+	return w, h, gap
+end
+
+-- Initial card dims used to size sub-labels at card creation. Layout helper
+-- below repositions everything when viewport changes.
+local CARD_WIDTH, CARD_HEIGHT, CARD_GAP = getCardDims()
 local CARDS_TOTAL = #MODES * CARD_WIDTH + (#MODES - 1) * CARD_GAP
 
 local function selectMode(index: number)
@@ -395,33 +427,42 @@ local function selectMode(index: number)
 			stroke.Color = MODES[i].accent
 			stroke.Thickness = 3
 			stroke.Transparency = 0
-			card.BackgroundColor3 = Color3.fromRGB(32, 36, 48)
+			card.BackgroundColor3 = UITheme.Color.bgHover
 		else
-			stroke.Color = Color3.fromRGB(60, 60, 72)
+			stroke.Color = UITheme.Color.borderSubtle
 			stroke.Thickness = 1
 			stroke.Transparency = 0.3
-			card.BackgroundColor3 = Color3.fromRGB(22, 24, 32)
+			card.BackgroundColor3 = UITheme.Color.bgElevated
 		end
 	end
 end
 
+-- Per-card label refs so responsive layout can adjust font sizes + positions
+type ModeCardRefs = {
+	tag: TextLabel,
+	name: TextLabel,
+	desc: TextLabel,
+	check: TextLabel,
+}
+local modeCardRefs: { ModeCardRefs } = {}
+
 for i, mode in MODES do
 	local card = Instance.new("TextButton")
-	card.Size = UDim2.new(0, CARD_WIDTH, 0, 160)
+	card.Size = UDim2.new(0, CARD_WIDTH, 0, CARD_HEIGHT)
 	card.AnchorPoint = Vector2.new(0, 0)
 	card.Position = UDim2.new(0.5, -CARDS_TOTAL / 2 + (i - 1) * (CARD_WIDTH + CARD_GAP), 0, 32)
-	card.BackgroundColor3 = Color3.fromRGB(22, 24, 32)
+	card.BackgroundColor3 = UITheme.Color.bgElevated
 	card.BorderSizePixel = 0
 	card.AutoButtonColor = false
 	card.Text = ""
 	card.Parent = centerCol
 
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 10)
+	corner.CornerRadius = UDim.new(0, UITheme.Radius.md)
 	corner.Parent = card
 
 	local stroke = Instance.new("UIStroke")
-	stroke.Color = Color3.fromRGB(60, 60, 72)
+	stroke.Color = UITheme.Color.borderSubtle
 	stroke.Thickness = 1
 	stroke.Parent = card
 
@@ -432,41 +473,43 @@ for i, mode in MODES do
 	accentBar.BorderSizePixel = 0
 	accentBar.Parent = card
 	local barCorner = Instance.new("UICorner")
-	barCorner.CornerRadius = UDim.new(0, 10)
+	barCorner.CornerRadius = UDim.new(0, UITheme.Radius.md)
 	barCorner.Parent = accentBar
 
 	-- Tagline (small, muted)
 	local tag = Instance.new("TextLabel")
-	tag.Size = UDim2.new(1, -24, 0, 16)
-	tag.Position = UDim2.new(0, 12, 0, 18)
+	tag.Size = UDim2.new(1, -UITheme.Space.xxl, 0, 14)
+	tag.Position = UDim2.new(0, UITheme.Space.m, 0, UITheme.Space.m)
 	tag.BackgroundTransparency = 1
-	tag.Font = Enum.Font.GothamBold
+	tag.Font = UITheme.Font.heading
 	tag.TextSize = 10
 	tag.TextColor3 = mode.accent
 	tag.TextXAlignment = Enum.TextXAlignment.Left
 	tag.Text = mode.tagline
 	tag.Parent = card
 
-	-- Name (large, prominent)
+	-- Name (large, prominent) — text scales with viewport via applyResponsiveLayout
 	local name = Instance.new("TextLabel")
-	name.Size = UDim2.new(1, -24, 0, 32)
-	name.Position = UDim2.new(0, 12, 0, 38)
+	name.Size = UDim2.new(1, -UITheme.Space.xxl, 0, 28)
+	name.Position = UDim2.new(0, UITheme.Space.m, 0, 28)
 	name.BackgroundTransparency = 1
-	name.Font = Enum.Font.GothamBlack
-	name.TextSize = 24
-	name.TextColor3 = Color3.fromRGB(245, 245, 250)
+	name.Font = UITheme.Font.display
+	name.TextSize = UITheme.FontSize.h3 -- 22; bumped to 24 on desktop in layout helper
+	name.TextColor3 = UITheme.Color.textPrimary
 	name.TextXAlignment = Enum.TextXAlignment.Left
+	name.TextScaled = false
+	name.TextWrapped = false
 	name.Text = mode.name
 	name.Parent = card
 
-	-- Description (multi-line, wrapped)
+	-- Description (multi-line, wrapped) — hidden on mobile to save vertical space.
 	local desc = Instance.new("TextLabel")
-	desc.Size = UDim2.new(1, -24, 0, 60)
-	desc.Position = UDim2.new(0, 12, 0, 78)
+	desc.Size = UDim2.new(1, -UITheme.Space.xxl, 0, 44)
+	desc.Position = UDim2.new(0, UITheme.Space.m, 0, 62)
 	desc.BackgroundTransparency = 1
-	desc.Font = Enum.Font.Gotham
-	desc.TextSize = 12
-	desc.TextColor3 = Color3.fromRGB(150, 155, 170)
+	desc.Font = UITheme.Font.body
+	desc.TextSize = UITheme.FontSize.micro
+	desc.TextColor3 = UITheme.Color.textSecondary
 	desc.TextXAlignment = Enum.TextXAlignment.Left
 	desc.TextYAlignment = Enum.TextYAlignment.Top
 	desc.TextWrapped = true
@@ -476,12 +519,12 @@ for i, mode in MODES do
 	-- Selected check indicator (bottom-right). Hidden when unselected.
 	local checkLbl = Instance.new("TextLabel")
 	checkLbl.Name = "Check"
-	checkLbl.Size = UDim2.new(0, 60, 0, 16)
+	checkLbl.Size = UDim2.new(0, 70, 0, 14)
 	checkLbl.AnchorPoint = Vector2.new(1, 1)
-	checkLbl.Position = UDim2.new(1, -12, 1, -10)
+	checkLbl.Position = UDim2.new(1, -UITheme.Space.s, 1, -UITheme.Space.s)
 	checkLbl.BackgroundTransparency = 1
-	checkLbl.Font = Enum.Font.GothamBold
-	checkLbl.TextSize = 11
+	checkLbl.Font = UITheme.Font.heading
+	checkLbl.TextSize = 10
 	checkLbl.TextColor3 = mode.accent
 	checkLbl.TextXAlignment = Enum.TextXAlignment.Right
 	checkLbl.Text = "● SELECTED"
@@ -496,7 +539,7 @@ for i, mode in MODES do
 	end)
 	card.MouseLeave:Connect(function()
 		if currentModeIndex ~= i then
-			stroke.Color = Color3.fromRGB(60, 60, 72)
+			stroke.Color = UITheme.Color.borderSubtle
 			stroke.Transparency = 0.3
 		end
 	end)
@@ -510,29 +553,31 @@ for i, mode in MODES do
 
 	modeCards[i] = card
 	modeStrokes[i] = stroke
+	modeCardRefs[i] = { tag = tag, name = name, desc = desc, check = checkLbl }
 end
 
 selectMode(1)
 local firstCheck = modeCards[1]:FindFirstChild("Check") :: TextLabel?
 if firstCheck then firstCheck.Visible = true end
 
--- PLAY button — wider and centered below the mode cards, amber gradient that
--- ties into the armory/title theme instead of generic bright green.
+-- PLAY button — sized + positioned in applyResponsiveLayout() so it scales with
+-- the mode card row. Mobile: 360x56, tablet: 440x64, desktop: matches card row
+-- width × 72. Amber gradient ties into the armory/title theme.
 local playBtn = Instance.new("TextButton")
-playBtn.Size = UDim2.new(0, CARDS_TOTAL, 0, 72)
+playBtn.Size = UDim2.new(0, CARDS_TOTAL, 0, 72) -- refreshed below
 playBtn.AnchorPoint = Vector2.new(0.5, 0)
 playBtn.Position = UDim2.new(0.5, 0, 0, 220)
 playBtn.BackgroundColor3 = Color3.fromRGB(210, 160, 70)
 playBtn.BorderSizePixel = 0
 playBtn.AutoButtonColor = false
-playBtn.Font = Enum.Font.GothamBlack
-playBtn.TextSize = 30
+playBtn.Font = UITheme.Font.display
+playBtn.TextSize = UITheme.FontSize.h2 -- 28; bumped to 30 on desktop
 playBtn.TextColor3 = Color3.fromRGB(28, 22, 14)
 playBtn.Text = "▶  PLAY"
 playBtn.Parent = centerCol
 
 local playCorner = Instance.new("UICorner")
-playCorner.CornerRadius = UDim.new(0, 10)
+playCorner.CornerRadius = UDim.new(0, UITheme.Radius.md)
 playCorner.Parent = playBtn
 
 local playGradient = Instance.new("UIGradient")
@@ -562,40 +607,53 @@ end)
 -- button's accent show only on the left edge + hover stroke + icon tint.
 type SideButton = { label: string, icon: string, accent: Color3, signal: string }
 
--- Mobile detection: TouchEnabled + no Mouse + narrow viewport. On mobile the
--- side button columns (was 200px each) ate too much horizontal space and
--- visually covered the center mode cards (DEATHMATCH / PRACTICE). We collapse
--- them to a narrow icon-only width and pull them to the literal screen edges
--- so the center stays clear and tappable. This is the minimum-risk fix:
--- existing layout math (yOffset stack, side anchor positions, hover, signals)
--- is preserved — we only change the width and the edge inset.
-local viewportW = (camera and camera.ViewportSize.X) or 1920
-local isMobile = UserInputService.TouchEnabled
-	and not UserInputService.MouseEnabled
-	and viewportW < 900
+-- Side-button sizing is viewport-based (Studio Device Emulator-friendly).
+-- Detection switched from TouchEnabled to ViewportSize.X because the emulator
+-- doesn't always toggle TouchEnabled when simulating mobile viewports.
+--   mobile (vw<700): 70x56 icon-only — narrower than before (100) so center
+--     mode cards have more breathing room on iPhone 7 landscape (666px).
+--   tablet/desktop (vw>=700): 200x56 with label visible.
+local SIDE_H = UITheme.TouchTarget.prominent -- 56
+local SIDE_GAP = UITheme.Space.m -- 12
+local function getSideMetrics(): (number, number, number)
+	-- Returns (width, edgeInset, iconSize). Label visibility derived from width.
+	if isMobileVP() then
+		return 70, UITheme.Space.s, 28 -- 70 wide, 8px inset, 28px glyph
+	else
+		return 200, UITheme.Space.x4l, 18 -- 200 wide, 48px inset, 18px glyph
+	end
+end
 
-local SIDE_W = if isMobile then 100 else 200
-local SIDE_H = 56
-local SIDE_GAP = 12
-local SIDE_EDGE_INSET = if isMobile then 8 else 40
+type SideButtonRefs = {
+	btn: TextButton,
+	icon: TextLabel,
+	label: TextLabel,
+	anchor: Vector2,
+	indexInCol: number,
+	colSize: number,
+}
+local sideButtonRefs: { SideButtonRefs } = {}
 
-local function makeSideButton(parent: Instance, def: SideButton, anchor: Vector2, position: UDim2)
+local function makeSideButton(parent: Instance, def: SideButton, anchor: Vector2, indexInCol: number, colSize: number): TextButton
+	local sideW, edgeInset, iconSize = getSideMetrics()
+
 	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(0, SIDE_W, 0, SIDE_H)
+	btn.Size = UDim2.new(0, sideW, 0, SIDE_H)
 	btn.AnchorPoint = anchor
-	btn.Position = position
-	btn.BackgroundColor3 = Color3.fromRGB(24, 26, 34)
+	-- Y position computed by layout helper based on indexInCol/colSize
+	btn.Position = UDim2.new(anchor.X, anchor.X == 0 and edgeInset or -edgeInset, 0.5, 0)
+	btn.BackgroundColor3 = UITheme.Color.bgElevated
 	btn.BorderSizePixel = 0
 	btn.AutoButtonColor = false
 	btn.Text = ""
 	btn.Parent = parent
 
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 8)
+	corner.CornerRadius = UDim.new(0, UITheme.Radius.md)
 	corner.Parent = btn
 
 	local stroke = Instance.new("UIStroke")
-	stroke.Color = Color3.fromRGB(55, 58, 70)
+	stroke.Color = UITheme.Color.borderSubtle
 	stroke.Thickness = 1
 	stroke.Transparency = 0.2
 	stroke.Parent = btn
@@ -611,52 +669,52 @@ local function makeSideButton(parent: Instance, def: SideButton, anchor: Vector2
 	ac.CornerRadius = UDim.new(0, 2)
 	ac.Parent = accentBar
 
-	-- Icon (left side on desktop, centered on mobile, tinted with accent)
+	-- Icon — sized + positioned in applyResponsiveLayout based on viewport.
 	local iconLbl = Instance.new("TextLabel")
-	if isMobile then
-		-- Mobile: icon-only, centered to fit 100px width
-		iconLbl.Size = UDim2.new(1, 0, 1, 0)
-		iconLbl.Position = UDim2.new(0, 0, 0, 0)
-		iconLbl.TextXAlignment = Enum.TextXAlignment.Center
-	else
-		iconLbl.Size = UDim2.new(0, 32, 1, 0)
-		iconLbl.Position = UDim2.new(0, 12, 0, 0)
-	end
 	iconLbl.BackgroundTransparency = 1
-	iconLbl.Font = Enum.Font.GothamBold
-	iconLbl.TextSize = if isMobile then 22 else 18
+	iconLbl.Font = UITheme.Font.heading
+	iconLbl.TextSize = iconSize
 	iconLbl.TextColor3 = def.accent
 	iconLbl.Text = def.icon
 	iconLbl.Parent = btn
 
-	-- Label (right side, white). Hidden on mobile — icon-only layout to keep
-	-- the side buttons narrow so the center mode cards are not obscured.
+	-- Label (right side, white). Hidden on mobile.
 	local labelLbl = Instance.new("TextLabel")
-	labelLbl.Size = UDim2.new(1, -58, 1, 0)
-	labelLbl.Position = UDim2.new(0, 50, 0, 0)
 	labelLbl.BackgroundTransparency = 1
-	labelLbl.Font = Enum.Font.GothamBold
-	labelLbl.TextSize = 14
-	labelLbl.TextColor3 = Color3.fromRGB(225, 228, 240)
+	labelLbl.Font = UITheme.Font.heading
+	labelLbl.TextSize = UITheme.FontSize.caption + 1 -- 14
+	labelLbl.TextColor3 = UITheme.Color.textPrimary
 	labelLbl.TextXAlignment = Enum.TextXAlignment.Left
 	labelLbl.Text = def.label
-	labelLbl.Visible = not isMobile
 	labelLbl.Parent = btn
 
+	-- Hover/press feedback: subtle accent stroke + bg shift. The accent stroke
+	-- on hover gives glyph-only mobile buttons a clear "selected" cue.
 	btn.MouseEnter:Connect(function()
-		btn.BackgroundColor3 = Color3.fromRGB(32, 36, 48)
+		btn.BackgroundColor3 = UITheme.Color.bgHover
 		stroke.Color = def.accent
 		stroke.Transparency = 0
+		stroke.Thickness = 2
 	end)
 	btn.MouseLeave:Connect(function()
-		btn.BackgroundColor3 = Color3.fromRGB(24, 26, 34)
-		stroke.Color = Color3.fromRGB(55, 58, 70)
+		btn.BackgroundColor3 = UITheme.Color.bgElevated
+		stroke.Color = UITheme.Color.borderSubtle
 		stroke.Transparency = 0.2
+		stroke.Thickness = 1
 	end)
 
 	btn.MouseButton1Click:Connect(function()
 		ClientSignals.Get(def.signal):Fire()
 	end)
+
+	table.insert(sideButtonRefs, {
+		btn = btn,
+		icon = iconLbl,
+		label = labelLbl,
+		anchor = anchor,
+		indexInCol = indexInCol,
+		colSize = colSize,
+	})
 
 	return btn
 end
@@ -670,8 +728,7 @@ local leftButtons: { SideButton } = {
 }
 
 for i, def in leftButtons do
-	local yOffset = -((#leftButtons - 1) * (SIDE_H + SIDE_GAP)) / 2 + (i - 1) * (SIDE_H + SIDE_GAP)
-	makeSideButton(screenGui, def, Vector2.new(0, 0.5), UDim2.new(0, SIDE_EDGE_INSET, 0.5, yOffset))
+	makeSideButton(screenGui, def, Vector2.new(0, 0.5), i, #leftButtons)
 end
 
 -- Right column buttons
@@ -682,8 +739,133 @@ local rightButtons: { SideButton } = {
 }
 
 for i, def in rightButtons do
-	local yOffset = -((#rightButtons - 1) * (SIDE_H + SIDE_GAP)) / 2 + (i - 1) * (SIDE_H + SIDE_GAP)
-	makeSideButton(screenGui, def, Vector2.new(1, 0.5), UDim2.new(1, -SIDE_EDGE_INSET, 0.5, yOffset))
+	makeSideButton(screenGui, def, Vector2.new(1, 0.5), i, #rightButtons)
+end
+
+-- ============================================================
+-- RESPONSIVE LAYOUT — recomputed at startup and whenever viewport changes.
+-- All sizing decisions live here so designers can tweak breakpoints in one
+-- place. Uses viewport.X (Studio Device Emulator-friendly), NOT TouchEnabled.
+-- ============================================================
+local function applyResponsiveLayout()
+	local mobile = isMobileVP()
+	local tablet = isTabletVP()
+
+	-- Title size: 36 mobile / 48 tablet / 60 desktop.
+	if mobile then
+		title.TextSize = UITheme.FontSize.h1 -- 36
+		title.Size = UDim2.new(0, math.min(560, getViewportW() - 80), 0, 48)
+		title.Position = UDim2.new(0.5, 0, 0, UITheme.Space.xxl)
+		subtitle.Position = UDim2.new(0.5, 0, 0, UITheme.Space.xxl + 44)
+		subtitle.TextSize = UITheme.FontSize.micro
+	elseif tablet then
+		title.TextSize = UITheme.FontSize.display -- 48
+		title.Size = UDim2.new(0, 600, 0, 64)
+		title.Position = UDim2.new(0.5, 0, 0, UITheme.Space.x3l)
+		subtitle.Position = UDim2.new(0.5, 0, 0, UITheme.Space.x3l + 58)
+		subtitle.TextSize = UITheme.FontSize.caption
+	else
+		title.TextSize = 60
+		title.Size = UDim2.new(0, 600, 0, 80)
+		title.Position = UDim2.new(0.5, 0, 0, 40)
+		subtitle.Position = UDim2.new(0.5, 0, 0, 115)
+		subtitle.TextSize = UITheme.FontSize.caption + 1
+	end
+
+	-- Recompute card dimensions
+	local cw, ch, gap = getCardDims()
+	CARD_WIDTH, CARD_HEIGHT, CARD_GAP = cw, ch, gap
+	CARDS_TOTAL = #MODES * CARD_WIDTH + (#MODES - 1) * CARD_GAP
+
+	-- Center column size + offset — narrower on mobile so it sits above PLAY
+	-- without colliding with edge-pinned side buttons.
+	local colHeight = ch + (mobile and 72 or 100) -- card height + space for PLAY
+	centerCol.Size = UDim2.new(0, CARDS_TOTAL + 24, 0, colHeight + 60)
+	-- Shift center column down a touch on mobile so it clears the rank chip /
+	-- title block above. Rank chip lives top-left at ~y=20-90.
+	centerCol.Position = UDim2.new(0.5, 0, 0.5, mobile and 10 or -10)
+
+	-- Re-lay each mode card + its labels
+	for i, card in modeCards do
+		card.Size = UDim2.new(0, CARD_WIDTH, 0, CARD_HEIGHT)
+		card.Position = UDim2.new(0.5, -CARDS_TOTAL / 2 + (i - 1) * (CARD_WIDTH + CARD_GAP), 0, 32)
+
+		local refs = modeCardRefs[i]
+		if refs then
+			-- Tag (small caption)
+			refs.tag.Size = UDim2.new(1, -UITheme.Space.xxl, 0, 14)
+			refs.tag.Position = UDim2.new(0, UITheme.Space.m, 0, mobile and UITheme.Space.s or UITheme.Space.m)
+			refs.tag.TextSize = mobile and 9 or 10
+
+			-- Name — keep readable: 16 mobile / 20 tablet / 24 desktop
+			local nameSize = mobile and 16 or (tablet and 20 or 24)
+			refs.name.Size = UDim2.new(1, -UITheme.Space.xxl, 0, mobile and 22 or 28)
+			refs.name.Position = UDim2.new(0, UITheme.Space.m, 0, mobile and 22 or 28)
+			refs.name.TextSize = nameSize
+
+			-- Description: hidden on mobile (no room), small wrap on tablet+
+			if mobile then
+				refs.desc.Visible = false
+			else
+				refs.desc.Visible = true
+				refs.desc.Size = UDim2.new(1, -UITheme.Space.xxl, 0, CARD_HEIGHT - 70)
+				refs.desc.Position = UDim2.new(0, UITheme.Space.m, 0, 56)
+				refs.desc.TextSize = tablet and 11 or 12
+			end
+
+			refs.check.TextSize = mobile and 9 or 10
+		end
+	end
+
+	-- PLAY button — mobile 360x56, tablet 440x64, desktop matches card row x 72
+	local playW, playH, playTextSize
+	if mobile then
+		playW, playH, playTextSize = math.min(360, CARDS_TOTAL), 56, UITheme.FontSize.bodyLg
+	elseif tablet then
+		playW, playH, playTextSize = math.min(440, CARDS_TOTAL), 64, UITheme.FontSize.h3
+	else
+		playW, playH, playTextSize = CARDS_TOTAL, 72, 30
+	end
+	playBtn.Size = UDim2.new(0, playW, 0, playH)
+	playBtn.Position = UDim2.new(0.5, 0, 0, CARD_HEIGHT + (mobile and 48 or 60))
+	playBtn.TextSize = playTextSize
+
+	-- Side buttons — width, icon size, label visibility, position
+	local sideW, edgeInset, iconSize = getSideMetrics()
+	for _, ref in sideButtonRefs do
+		ref.btn.Size = UDim2.new(0, sideW, 0, SIDE_H)
+		local yOffset = -((ref.colSize - 1) * (SIDE_H + SIDE_GAP)) / 2 + (ref.indexInCol - 1) * (SIDE_H + SIDE_GAP)
+		if ref.anchor.X == 0 then
+			ref.btn.Position = UDim2.new(0, edgeInset, 0.5, yOffset)
+		else
+			ref.btn.Position = UDim2.new(1, -edgeInset, 0.5, yOffset)
+		end
+
+		ref.icon.TextSize = iconSize
+		if mobile then
+			-- Icon-only, centered to fill the narrow button
+			ref.icon.Size = UDim2.new(1, 0, 1, 0)
+			ref.icon.Position = UDim2.new(0, 0, 0, 0)
+			ref.icon.TextXAlignment = Enum.TextXAlignment.Center
+			ref.label.Visible = false
+		else
+			-- Icon left, label right
+			ref.icon.Size = UDim2.new(0, 32, 1, 0)
+			ref.icon.Position = UDim2.new(0, UITheme.Space.m, 0, 0)
+			ref.icon.TextXAlignment = Enum.TextXAlignment.Center
+			ref.label.Size = UDim2.new(1, -58, 1, 0)
+			ref.label.Position = UDim2.new(0, 50, 0, 0)
+			ref.label.Visible = true
+		end
+	end
+end
+
+applyResponsiveLayout()
+
+-- Re-run on viewport changes so toggling Studio Device Emulator (and real
+-- device rotation) updates the layout live.
+if Workspace.CurrentCamera then
+	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(applyResponsiveLayout)
 end
 
 -- Player name at bottom-left
