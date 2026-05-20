@@ -17,6 +17,8 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local GuiService = game:GetService("GuiService")
+local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local UITheme = require(Shared.Modules.UITheme)
@@ -92,10 +94,13 @@ screenGui.Parent = playerGui
 
 local CONTAINER_BG = UITheme.Color.bgBase
 
+-- Container lives in the TOP-LEFT group with the rank chip below it. We anchor
+-- at (0, 0) and offset by GuiService topbar inset + a UITheme.Space.l gap so
+-- the HUD never overlaps the Roblox chat/audio icons on mobile.
 local container = Instance.new("Frame")
-container.Size = UDim2.new(0, 260, 0, 56)
-container.AnchorPoint = Vector2.new(0, 1)
-container.Position = UDim2.new(0, 24, 1, -80)
+container.Size = UDim2.new(0, 180, 0, 40)
+container.AnchorPoint = Vector2.new(0, 0)
+container.Position = UDim2.new(0, 12, 0, UITheme.Space.l)
 container.BackgroundColor3 = CONTAINER_BG
 container.BackgroundTransparency = 0.25
 container.BorderSizePixel = 0
@@ -104,50 +109,76 @@ container.Parent = screenGui
 UITheme.corner(container, "md")
 local containerStroke = UITheme.stroke(container, "borderSubtle", 1.5, 0.4)
 
+-- Responsive sizing: mobile 180x40, tablet 220x48, desktop 260x56. We also
+-- recompute the Y offset whenever the topbar inset changes (mobile rotation,
+-- Studio play-mode toolbar appearing, etc.).
+local function refreshContainerLayout()
+	local cam = Workspace.CurrentCamera
+	local vw = cam and cam.ViewportSize.X or 1920
+	local w, h
+	if vw < 700 then
+		w, h = 180, 40
+	elseif vw < 1100 then
+		w, h = 220, 48
+	else
+		w, h = 260, 56
+	end
+	container.Size = UDim2.new(0, w, 0, h)
+	local topInset = GuiService:GetGuiInset().Y
+	container.Position = UDim2.new(0, 12, 0, topInset + UITheme.Space.l)
+end
+refreshContainerLayout()
+GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(refreshContainerLayout)
+if Workspace.CurrentCamera then
+	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshContainerLayout)
+end
+
 -- UIScale gives us a single mutable handle for the damage pulse animation.
 local containerScale = Instance.new("UIScale")
 containerScale.Scale = 1.0
 containerScale.Parent = container
 
 -- ============================================================================
--- Top row: heart icon + HP digits (mono-spaced so 100→99→9 doesn't shift)
+-- Inline layout: [ ♥ 100   ████████ ] — heart, HP value, then bar filling
+-- the rest of the row. Compact single-row design for the top-left HUD group.
 -- ============================================================================
-local topRow = Instance.new("Frame")
-topRow.Size = UDim2.new(1, -UITheme.Space.xl, 0, 24)
-topRow.Position = UDim2.new(0, UITheme.Space.m, 0, UITheme.Space.s - 2)
-topRow.BackgroundTransparency = 1
-topRow.Parent = container
+local INNER_PAD = UITheme.Space.s -- 8px left/right padding inside container
 
 local heartIcon = Instance.new("TextLabel")
-heartIcon.Size = UDim2.new(0, 22, 1, 0)
+heartIcon.Size = UDim2.new(0, 18, 1, 0)
+heartIcon.Position = UDim2.new(0, INNER_PAD, 0, 0)
 heartIcon.BackgroundTransparency = 1
 heartIcon.Font = UITheme.Font.display
-heartIcon.TextSize = UITheme.FontSize.bodyLg
+heartIcon.TextSize = UITheme.FontSize.body
 heartIcon.TextColor3 = UITheme.Color.success
 heartIcon.TextXAlignment = Enum.TextXAlignment.Left
 heartIcon.TextYAlignment = Enum.TextYAlignment.Center
 -- TODO: replace with image asset when uploaded (see ASSETS.md)
 heartIcon.Text = "♥"
-heartIcon.Parent = topRow
+heartIcon.Parent = container
 
 local hpLabel = Instance.new("TextLabel")
-hpLabel.Size = UDim2.new(1, -28, 1, 0)
-hpLabel.Position = UDim2.new(0, 28, 0, 0)
+hpLabel.Size = UDim2.new(0, 32, 1, 0)
+hpLabel.Position = UDim2.new(0, INNER_PAD + 20, 0, 0)
 hpLabel.BackgroundTransparency = 1
 hpLabel.Font = UITheme.Font.mono
-hpLabel.TextSize = UITheme.FontSize.bodyLg
+hpLabel.TextSize = UITheme.FontSize.body
 hpLabel.TextColor3 = UITheme.Color.textPrimary
 hpLabel.TextXAlignment = Enum.TextXAlignment.Left
 hpLabel.TextYAlignment = Enum.TextYAlignment.Center
 hpLabel.Text = "100"
-hpLabel.Parent = topRow
+hpLabel.Parent = container
 
 -- ============================================================================
--- Bar (track + fill). Bar height = UITheme.Space.m (12).
+-- Bar (track + fill). Fills the right portion of the container row.
 -- ============================================================================
+local BAR_LEFT = INNER_PAD + 20 + 32 + UITheme.Space.s -- past heart + value + gap
+local BAR_HEIGHT = UITheme.Space.s + 2 -- 10px
+
 local barBg = Instance.new("Frame")
-barBg.Size = UDim2.new(1, -UITheme.Space.xl, 0, UITheme.Space.m)
-barBg.Position = UDim2.new(0, UITheme.Space.m, 1, -UITheme.Space.xl)
+barBg.Size = UDim2.new(1, -(BAR_LEFT + INNER_PAD), 0, BAR_HEIGHT)
+barBg.AnchorPoint = Vector2.new(0, 0.5)
+barBg.Position = UDim2.new(0, BAR_LEFT, 0.5, 0)
 barBg.BackgroundColor3 = UITheme.Color.bgPressed
 barBg.BorderSizePixel = 0
 barBg.Parent = container

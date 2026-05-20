@@ -2,7 +2,9 @@
 -- Tier 2 integration test for HealthController.
 -- Verifies in Studio play mode:
 --   1. ScreenGui "HealthHUD" exists with expected structure
---   2. Container anchored at bottom-left (AnchorPoint y=1, Position 24,-80)
+--   2. Container anchored at TOP-LEFT (AnchorPoint y=0, Position 12,topInset+16)
+--      — was moved from bottom-left into the unified top-left HUD group with
+--      the rank chip directly below.
 --   3. NO full-screen Frame with danger color (regression guard against
 --      the vision-obscuring overlay that was removed)
 --   4. Edge vignette frames are present (at least 1 frame styled as edge strip)
@@ -46,15 +48,21 @@ for _, child in hud:GetChildren() do
 end
 if not container then return "FAIL: HP container Frame not found" end
 
--- Verify bottom-left anchoring
-if container.AnchorPoint.Y < 0.99 then
-	return string.format("FAIL: container AnchorPoint.Y=%.2f, expected ~1.0 (bottom-anchored)", container.AnchorPoint.Y)
+-- Verify TOP-LEFT anchoring (HP now lives at the top, rank chip below it)
+if container.AnchorPoint.Y > 0.01 then
+	return string.format("FAIL: container AnchorPoint.Y=%.2f, expected ~0.0 (top-anchored)", container.AnchorPoint.Y)
 end
 if container.AnchorPoint.X > 0.01 then
 	return string.format("FAIL: container AnchorPoint.X=%.2f, expected ~0.0 (left-anchored)", container.AnchorPoint.X)
 end
-if math.abs(container.Position.X.Offset - 24) > 1 then
-	return string.format("FAIL: container Position.X.Offset=%d, expected 24", container.Position.X.Offset)
+if math.abs(container.Position.X.Offset - 12) > 1 then
+	return string.format("FAIL: container Position.X.Offset=%d, expected 12", container.Position.X.Offset)
+end
+-- Y offset = GuiService:GetGuiInset().Y + 16 (UITheme.Space.l). On desktop
+-- the inset is typically 36, on mobile a bit more — accept any offset in
+-- [16, 96] which covers both cases without false-positive.
+if container.Position.Y.Offset < 16 or container.Position.Y.Offset > 96 then
+	return string.format("FAIL: container Position.Y.Offset=%d, expected 16..96 (topInset + UITheme.Space.l)", container.Position.Y.Offset)
 end
 
 -- REGRESSION GUARD: no full-screen Frame with danger color anywhere in HealthHUD.
