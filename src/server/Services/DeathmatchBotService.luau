@@ -17,7 +17,9 @@ local BotAnimator = require(script.Parent.Parent.Modules.BotAnimator)
 
 local DeathmatchBotService = {}
 
-local TARGET_PLAYER_COUNT = 7
+-- Total combatants (players + bots) target. User asked for 20 bots in a
+-- chaotic DM match — keep TARGET = 21 so botsNeeded = 21 - playerCount.
+local TARGET_PLAYER_COUNT = 21
 local BOT_HEALTH = 100
 local BOT_DAMAGE = 8              -- damage per shot
 local BOT_RANGE = 90              -- engagement distance
@@ -109,16 +111,34 @@ local function spawnsByDistanceTo(pos: Vector3): { BasePart }
 	return result
 end
 
--- Try to find a "reference position" the bots should spawn near. Priority:
---   1. First live player's HRP (when SPAWN_NEAR_PLAYER and players exist)
---   2. nil → caller falls back to random arena spawns.
+-- Try to find a "reference position" the bots should spawn near.
+-- ONLY returns a position if the player is actually IN the arena (close to
+-- one of the arena spawn points). If the player is still at the lobby, we
+-- return nil so the caller falls back to plain arena spawns — otherwise
+-- the "near player" spawn would dump bots in the lobby, useless.
+--
+-- Heuristic: take the median spawn Y, accept the player ref only if they're
+-- within ±20 studs of it (so the arena-spawn vs lobby check is automatic
+-- regardless of which map is active).
 local function findReferencePlayerPos(): Vector3?
 	if not SPAWN_NEAR_PLAYER then return nil end
+	local arena = Workspace:FindFirstChild("ActiveArena")
+	local spawnsFolder = arena and arena:FindFirstChild("Spawns")
+	if not spawnsFolder then return nil end
+	-- Compute median spawn Y (any spawn works as a sample of arena floor height)
+	local sampleY: number? = nil
+	for _, c in spawnsFolder:GetChildren() do
+		if c:IsA("BasePart") then sampleY = c.Position.Y; break end
+	end
+	if not sampleY then return nil end
 	for _, p in Players:GetPlayers() do
 		local char = p.Character
 		local hrp = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
-		if hrp and hrp.Position.Y > -100 then
-			return hrp.Position
+		if hrp then
+			local dy = math.abs(hrp.Position.Y - sampleY)
+			if dy < 20 then
+				return hrp.Position
+			end
 		end
 	end
 	return nil
@@ -735,8 +755,11 @@ local function spawnBotsToFill()
 		else
 			sp = spawns[math.random(#spawns)]
 		end
-		local jitterX = (math.random() - 0.5) * 6
-		local jitterZ = (math.random() - 0.5) * 6
+		-- With 20 bots and only 6 spawn points (~3 bots per spawn), we widen
+		-- the jitter so they don't all stack inside the same 6-stud square.
+		-- ±15 studs gives a 30×30 spread per spawn — enough breathing room.
+		local jitterX = (math.random() - 0.5) * 30
+		local jitterZ = (math.random() - 0.5) * 30
 		local targetCF = sp.CFrame + Vector3.new(jitterX, 5, jitterZ)
 		placeBotAt(bot, targetCF)
 		table.insert(bots, bot)
@@ -857,9 +880,29 @@ local function relocateBotsNearPlayer(char: Model)
 	if not SPAWN_NEAR_PLAYER then return end
 	if MatchStateService.GetState().state ~= MatchState.States.MATCH then return end
 	if MatchStateService.GetGamemode() ~= "deathmatch" then return end
-	task.wait(0.5) -- let character physics settle
+	-- Wait a beat for both physics + ArenaService teleport. CharacterAdded
+	-- fires the moment the character is parented to Workspace, BEFORE
+	-- ArenaService:Teleport runs, so without the wait we'd see the
+	-- character still at lobby (y ≈ 107).
+	task.wait(1.5)
 	local hrp = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not hrp or hrp.Position.Y < -100 then return end
+	-- Reject lobby refs — same arena-vs-lobby check as findReferencePlayerPos.
+	local arena = Workspace:FindFirstChild("ActiveArena")
+	local spawnsFolder = arena and arena:FindFirstChild("Spawns")
+	local sampleY: number? = nil
+	if spawnsFolder then
+		for _, c in spawnsFolder:GetChildren() do
+			if c:IsA("BasePart") then sampleY = c.Position.Y; break end
+		end
+	end
+	if sampleY and math.abs(hrp.Position.Y - sampleY) > 20 then
+		print(string.format(
+			"[DEBUG-BOT] relocateBotsNearPlayer: player still at lobby (y=%d vs arena y=%d), skipping",
+			math.floor(hrp.Position.Y), math.floor(sampleY)
+		))
+		return
+	end
 	-- Find 2 alive bots farthest from the player, move them close.
 	local candidates: { Model } = {}
 	for _, bot in bots do
