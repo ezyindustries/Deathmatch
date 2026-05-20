@@ -2,6 +2,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local GuiService = game:GetService("GuiService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared.Modules.Remotes)
@@ -22,14 +23,27 @@ screenGui.IgnoreGuiInset = true
 screenGui.DisplayOrder = 150
 screenGui.Parent = playerGui
 
--- Rank badge (below mini scoreboard)
+-- Rank badge (below mini scoreboard).
+-- ScreenGui.IgnoreGuiInset=true means we sit underneath the Roblox topbar
+-- (chat/headphones icons) on mobile unless we manually shift down by the
+-- topbar reservation. We keep IgnoreGuiInset on so other GUIs aren't pushed
+-- around — only this top-anchored element needs the manual offset.
+local RANK_BADGE_TOP_PAD = 64 -- original Y offset, preserved as the local Y component
 local rankBadge = Instance.new("Frame")
 rankBadge.Size = UDim2.new(0, 260, 0, 36)
-rankBadge.Position = UDim2.new(0, 20, 0, 64)
+rankBadge.Position = UDim2.new(0, 20, 0, RANK_BADGE_TOP_PAD)
 rankBadge.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
 rankBadge.BackgroundTransparency = 0.2
 rankBadge.BorderSizePixel = 0
 rankBadge.Parent = screenGui
+
+-- Topbar inset compensation (Bug fix: rank chip covered by Roblox topbar on mobile)
+local function refreshRankBadgeTopOffset()
+	local topInset = GuiService:GetGuiInset().Y
+	rankBadge.Position = UDim2.new(0, 20, 0, RANK_BADGE_TOP_PAD + topInset)
+end
+refreshRankBadgeTopOffset()
+GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(refreshRankBadgeTopOffset)
 
 local rankCorner = Instance.new("UICorner")
 rankCorner.CornerRadius = UDim.new(0, 10)

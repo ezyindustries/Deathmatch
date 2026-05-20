@@ -17,6 +17,7 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GuiService = game:GetService("GuiService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local MatchState = require(Shared.Modules.MatchState)
@@ -84,7 +85,12 @@ screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
 screenGui.Parent = playerGui
 
--- Container: top-center anchored, width swaps with viewport
+-- Container: top-center anchored, width swaps with viewport.
+-- NOTE: ScreenGui.IgnoreGuiInset = true means Roblox does NOT auto-shift our
+-- HUD below the topbar (chat/headphones icons on mobile). We keep IgnoreGuiInset
+-- on so other ScreenGui elements (e.g. bottom-anchored mobile FIRE button) stay
+-- pinned to the true viewport edge, and instead manually compensate by adding
+-- GuiService:GetGuiInset().Y to this top-anchored container's Y offset below.
 local container = Instance.new("Frame")
 container.AnchorPoint = Vector2.new(0.5, 0)
 container.Position = UDim2.new(0.5, 0, 0, UITheme.Space.l)
@@ -162,6 +168,19 @@ timerLabel.TextColor3 = UITheme.Color.textPrimary
 timerLabel.Text = "0:00"
 timerLabel.LayoutOrder = 4
 timerLabel.Parent = container
+
+-- ---------------------------------------------------------------------------
+-- Topbar inset compensation (Bug fix: HUD covered by Roblox topbar on mobile)
+-- ---------------------------------------------------------------------------
+-- IgnoreGuiInset=true means we sit underneath chat/headphones icons unless we
+-- manually shift down by the topbar reservation height. TopbarInset signal
+-- fires when chat opens/closes or the player rotates the device.
+local function refreshTopOffset()
+	local topInset = GuiService:GetGuiInset().Y
+	container.Position = UDim2.new(0.5, 0, 0, topInset + UITheme.Space.l)
+end
+refreshTopOffset()
+GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(refreshTopOffset)
 
 -- ---------------------------------------------------------------------------
 -- Responsive container size
