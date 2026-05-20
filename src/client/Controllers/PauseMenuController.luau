@@ -63,7 +63,7 @@ menuBtnStroke.Color = STROKE_BASE
 menuBtnStroke.Thickness = 1
 menuBtnStroke.Parent = menuButton
 
--- Tiny ESC hint chip below the button so players know the shortcut
+-- Tiny ESC hint chip below the button — desktop only (mobile has no keyboard).
 local escHint = Instance.new("TextLabel")
 escHint.Size = UDim2.new(0, 44, 0, 14)
 escHint.AnchorPoint = Vector2.new(1, 0)
@@ -73,6 +73,7 @@ escHint.Font = Enum.Font.GothamBold
 escHint.TextSize = 9
 escHint.TextColor3 = TEXT_DIM
 escHint.Text = "ESC"
+escHint.Visible = not (UserInputService.TouchEnabled and not UserInputService.MouseEnabled)
 escHint.Parent = screenGui
 
 menuButton.MouseEnter:Connect(function()

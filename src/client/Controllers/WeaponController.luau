@@ -1606,15 +1606,15 @@ if isTouch then
 		Remotes.SwitchWeapon:FireServer(nextSlot)
 	end)
 
-	-- ===== SPRINT TOGGLE (bottom-LEFT, just above joystick) =====
-	-- Lowered from -180 → -100 so it doesn't visually crash into top-left
-	-- elements (BRONZE rank chip) on short-vertical mobile viewports.
-	-- Joystick reserves ~80px at corner; -100 keeps a small gap above it.
+	-- ===== SPRINT TOGGLE (bottom-LEFT, ABOVE HP bar) =====
+	-- HP bar (HealthController) occupies x:24-284 y:-136..-80 at bottom-left,
+	-- so we stack RUN above it at y:-204..-160 (24px gap). Still clears the
+	-- BRONZE rank chip at top because phones are tall enough.
 	local sprintBtn = Instance.new("TextButton")
 	sprintBtn.Name = "MobileSprintBtn"
 	sprintBtn.Size = UDim2.new(0, 44, 0, 44)
 	sprintBtn.AnchorPoint = Vector2.new(0, 1)
-	sprintBtn.Position = UDim2.new(0, 12, 1, -100)
+	sprintBtn.Position = UDim2.new(0, 12, 1, -160)
 	sprintBtn.Text = "RUN"
 	sprintBtn.Parent = screenGui
 	styleBtn(sprintBtn)
@@ -1643,7 +1643,7 @@ if isTouch then
 	registerHudButton(adsBtn,    "hudAds",    UDim2.new(1, -12, 0.5, -52)) -- top of col
 	registerHudButton(reloadBtn, "hudReload", UDim2.new(1, -12, 0.5, 0))
 	registerHudButton(switchBtn, "hudSwap",   UDim2.new(1, -12, 0.5, 52))
-	registerHudButton(sprintBtn, "hudSprint", UDim2.new(0, 12, 1, -100))
+	registerHudButton(sprintBtn, "hudSprint", UDim2.new(0, 12, 1, -160))
 end
 
 Remotes.AmmoUpdate.OnClientEvent:Connect(function(info: any)

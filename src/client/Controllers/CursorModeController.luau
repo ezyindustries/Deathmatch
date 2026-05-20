@@ -58,7 +58,8 @@ hintLabel.TextSize = 13
 hintLabel.TextColor3 = Color3.fromRGB(180, 220, 255)
 hintLabel.Text = "🖱 CURSOR MODE — Alt to lock back"
 
--- Persistent top-right hint: "ALT for cursor" (always visible when locked)
+-- Persistent top-right hint: "ALT for cursor" — desktop-only (no keyboard ALT on touch).
+local isTouchOnly = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
 local persistentHint = Instance.new("Frame")
 persistentHint.Size = UDim2.new(0, 160, 0, 28)
 persistentHint.AnchorPoint = Vector2.new(1, 0)
@@ -66,6 +67,7 @@ persistentHint.Position = UDim2.new(1, -20, 0, 76)
 persistentHint.BackgroundColor3 = Color3.fromRGB(20, 22, 32)
 persistentHint.BackgroundTransparency = 0.3
 persistentHint.BorderSizePixel = 0
+persistentHint.Visible = not isTouchOnly
 persistentHint.Parent = screenGui
 
 local persistentCorner = Instance.new("UICorner")

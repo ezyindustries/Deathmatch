@@ -14,16 +14,18 @@ local UITheme = require(Shared.Modules.UITheme)
 
 local KillFeedController = {}
 
-local MAX_ENTRIES = 5
+local MAX_ENTRIES = 3 -- shrunk from 5 on mobile-tight screens
 local ENTRY_LIFETIME = 4
-local ENTRY_HEIGHT = 44   -- meets 44px mobile touch guideline (even tho non-interactive, looks bigger)
+local ENTRY_HEIGHT = 36
 local ENTRY_MAX_W_DESKTOP = 420
-local ENTRY_MAX_W_MOBILE = 320
+local ENTRY_MAX_W_MOBILE = 220 -- shrunk from 320 to stay clear of right-edge ammo/buttons
 -- WeaponController places the mobile FIRE button anchored bottom-right at
--- (-100, -180) with size 100x100. KillFeed entries are anchored top-right and
--- can grow tall enough to overlap the FIRE button's top edge — shift the whole
--- container LEFT by the FIRE button width + a margin to clear the tap target.
-local FIRE_BUTTON_WIDTH = 100
+-- (-88, -130) with size 72x72. KillFeed entries are anchored top-right and we
+-- shift them LEFT past the FIRE button + a margin so they never extend into
+-- the FIRE tap target on narrow viewports.
+local FIRE_BUTTON_WIDTH = 72
+-- Also clear the right-edge ADS/RELOAD/SWAP column (44 wide, +12 right padding).
+local RIGHT_COL_RESERVE = 56
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -39,29 +41,37 @@ local function isMobileDevice(): boolean
 	return UserInputService.TouchEnabled and not UserInputService.MouseEnabled
 end
 
+local GuiService = game:GetService("GuiService")
+
 local container = Instance.new("Frame")
-container.Size = UDim2.new(0, ENTRY_MAX_W_DESKTOP + 8, 0, 260)
+container.Size = UDim2.new(0, ENTRY_MAX_W_DESKTOP + 8, 0, 180)
 container.AnchorPoint = Vector2.new(1, 0)
 container.Position = UDim2.new(1, -UITheme.Space.xl, 0, UITheme.Space.x5l + UITheme.Space.x3l)
 container.BackgroundTransparency = 1
 container.Parent = screenGui
 
 -- Responsive container position + width.
--- Width: narrower on mobile so it doesn't crowd the screen.
--- X-position: on mobile, also shift LEFT by the FIRE button width so kill
--- entries don't extend into the FIRE tap target on the right edge.
+-- Width: narrower on mobile to stay clear of right-edge HUD (FIRE + ADS column).
+-- Y position: on mobile, push DOWN below Match HUD (which sits at topInset + 16
+-- with ~44 height) so kill feed entries don't overlap the timer/state badge.
+-- X position: shift LEFT past FIRE button + right-edge column on mobile.
 local function refreshContainerSize()
 	local cam = Workspace.CurrentCamera
 	local vw = cam and cam.ViewportSize.X or 1920
 	local mobileViewport = vw < 700
 	local w = mobileViewport and (ENTRY_MAX_W_MOBILE + 8) or (ENTRY_MAX_W_DESKTOP + 8)
-	container.Size = UDim2.new(0, w, 0, 260)
+	container.Size = UDim2.new(0, w, 0, 180)
 
 	local rightOffset = UITheme.Space.xl
+	local topOffset = UITheme.Space.x5l + UITheme.Space.x3l -- 96 desktop default
 	if isMobileDevice() then
-		rightOffset = FIRE_BUTTON_WIDTH + UITheme.Space.xl
+		rightOffset = FIRE_BUTTON_WIDTH + RIGHT_COL_RESERVE + UITheme.Space.s -- ≈ 136
+		-- Below Match HUD (topInset + 16 + ~44) with generous gap so entries
+		-- never collide with the timer on short-vertical viewports.
+		local topInset = GuiService:GetGuiInset().Y
+		topOffset = topInset + 44 + UITheme.Space.x3l + UITheme.Space.s -- 44 + 32 + 8 = 84
 	end
-	container.Position = UDim2.new(1, -rightOffset, 0, UITheme.Space.x5l + UITheme.Space.x3l)
+	container.Position = UDim2.new(1, -rightOffset, 0, topOffset)
 end
 refreshContainerSize()
 if Workspace.CurrentCamera then
