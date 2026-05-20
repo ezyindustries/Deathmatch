@@ -583,28 +583,23 @@ end)
 -- overlaps ammo counter on narrow screens" — fix by shifting ammo LEFT past the
 -- FIRE button's width on touch devices (see mobile-detection block below).
 local ammoPanel = Instance.new("Frame")
-ammoPanel.Size = UDim2.new(0, 180, 0, 56)
+ammoPanel.Size = UDim2.new(0, 130, 0, 40)
 ammoPanel.AnchorPoint = Vector2.new(1, 1)
-ammoPanel.Position = UDim2.new(1, -20, 1, -92)
+ammoPanel.Position = UDim2.new(1, -20, 1, -76)
 ammoPanel.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
 ammoPanel.BackgroundTransparency = 0.25
 ammoPanel.BorderSizePixel = 0
 ammoPanel.Visible = false
 ammoPanel.Parent = screenGui
 
--- Mobile-only: shift ammo panel LEFT to clear the FIRE button (100px wide,
--- anchored bottom-right). 100 (fire width) + 24 (gap) = -124 px from right.
--- Detection is done up-front since the device touch capability is static
--- across the session.
+-- Mobile: stack ammo ABOVE FIRE button (right-bottom column). FIRE is 72x72
+-- anchored at (1, -88, 1, -130). Ammo sits 8px above FIRE top with same right
+-- anchor so the vertical stack reads as one cluster.
 do
 	local _uis = UserInputService
 	local isMobileDevice = _uis.TouchEnabled and not _uis.MouseEnabled
 	if isMobileDevice then
-		-- FIRE button = 100x100 placed at (1, -100, 1, -180) → its left edge
-		-- sits 100px from the right. Shift ammo so its right edge clears that
-		-- + a small gap, and lift it slightly so it doesn't visually crowd
-		-- the FIRE circle from below.
-		ammoPanel.Position = UDim2.new(1, -124, 1, -92)
+		ammoPanel.Position = UDim2.new(1, -88, 1, -210)
 	end
 end
 
@@ -617,7 +612,7 @@ ammoNumber.Size = UDim2.new(0.55, 0, 1, 0)
 ammoNumber.Position = UDim2.new(0, 0, 0, 0)
 ammoNumber.BackgroundTransparency = 1
 ammoNumber.Font = Enum.Font.GothamBlack
-ammoNumber.TextSize = 32
+ammoNumber.TextSize = 22
 ammoNumber.TextColor3 = Color3.fromRGB(255, 255, 255)
 ammoNumber.TextXAlignment = Enum.TextXAlignment.Right
 ammoNumber.Text = "0"
@@ -628,7 +623,7 @@ ammoMag.Size = UDim2.new(0.4, -10, 1, 0)
 ammoMag.Position = UDim2.new(0.55, 4, 0, 0)
 ammoMag.BackgroundTransparency = 1
 ammoMag.Font = Enum.Font.GothamMedium
-ammoMag.TextSize = 18
+ammoMag.TextSize = 13
 ammoMag.TextColor3 = Color3.fromRGB(170, 175, 195)
 ammoMag.TextXAlignment = Enum.TextXAlignment.Left
 ammoMag.TextYAlignment = Enum.TextYAlignment.Bottom
@@ -1501,12 +1496,16 @@ if isTouch then
 	-- Roblox's default camera-rotate also receives it. Result: tapping fires,
 	-- dragging from the button rotates the camera (aim while firing).
 	-- Touching anywhere else on screen → camera rotate only, NO auto-fire.
-	local fireDefaultPos = UDim2.new(1, -100, 1, -180)
+	-- Compact mobile HUD (per user feedback "perkecil semua"):
+	--   FIRE 72×72 anchored bottom-right at (1, -88, 1, -130) — sits ABOVE
+	--   the default Roblox jump button (~80px corner reservation) and to the
+	--   LEFT of the right-edge ADS/RELOAD/SWAP column.
+	local fireDefaultPos = UDim2.new(1, -88, 1, -130)
 	local fireBtn = Instance.new("Frame")
 	fireBtn.Name = "MobileFireBtn"
 	fireBtn.AnchorPoint = Vector2.new(1, 1)
-	fireBtn.Position = fireDefaultPos -- above button column, away from jump
-	fireBtn.Size = UDim2.new(0, 100, 0, 100)
+	fireBtn.Position = fireDefaultPos
+	fireBtn.Size = UDim2.new(0, 72, 0, 72)
 	fireBtn.BackgroundColor3 = Color3.fromRGB(220, 70, 70)
 	fireBtn.BackgroundTransparency = 0.35
 	fireBtn.BorderSizePixel = 0
@@ -1518,7 +1517,7 @@ if isTouch then
 	fireBtnLbl.Size = UDim2.new(1, 0, 1, 0)
 	fireBtnLbl.BackgroundTransparency = 1
 	fireBtnLbl.Font = Enum.Font.GothamBold
-	fireBtnLbl.TextSize = 16
+	fireBtnLbl.TextSize = 12
 	fireBtnLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
 	fireBtnLbl.Text = "FIRE"
 	fireBtnLbl.Parent = fireBtn
@@ -1548,13 +1547,15 @@ if isTouch then
 
 	registerHudButton(fireBtn, "hudFire", fireDefaultPos)
 
-	-- ===== RIGHT-EDGE BUTTON COLUMN =====
-	-- Dark + minimal styling. Vertical stack at right edge, mid-height.
+	-- ===== RIGHT-EDGE BUTTON COLUMN (compact) =====
+	-- 3 small dark buttons (44×44 each), 8px gaps, stacked at right edge
+	-- centered vertically. To the right of FIRE; doesn't overlap FIRE
+	-- because FIRE x ends at -88 and column x starts at -56.
 	local btnCol = Instance.new("Frame")
 	btnCol.Name = "MobileBtnCol"
 	btnCol.AnchorPoint = Vector2.new(1, 0.5)
 	btnCol.Position = UDim2.new(1, -12, 0.5, 0)
-	btnCol.Size = UDim2.new(0, 64, 0, 220)
+	btnCol.Size = UDim2.new(0, 44, 0, 148) -- 3×44 + 2×8 = 148
 	btnCol.BackgroundTransparency = 1
 	btnCol.Parent = screenGui
 
@@ -1564,7 +1565,7 @@ if isTouch then
 		b.BorderSizePixel = 0
 		b.AutoButtonColor = false
 		b.Font = Enum.Font.GothamBold
-		b.TextSize = 11
+		b.TextSize = 10
 		b.TextColor3 = Color3.fromRGB(220, 225, 235)
 		local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 8); c.Parent = b
 		local s = Instance.new("UIStroke"); s.Color = Color3.fromRGB(90, 100, 120); s.Thickness = 1; s.Transparency = 0.5; s.Parent = b
@@ -1572,7 +1573,7 @@ if isTouch then
 
 	-- ADS button (top of column) — hold to scope
 	local adsBtn = Instance.new("TextButton")
-	adsBtn.Size = UDim2.new(1, 0, 0, 64)
+	adsBtn.Size = UDim2.new(1, 0, 0, 44)
 	adsBtn.Position = UDim2.new(0, 0, 0, 0)
 	adsBtn.Text = "ADS"
 	adsBtn.Parent = btnCol
@@ -1582,17 +1583,17 @@ if isTouch then
 
 	-- RELOAD button
 	local reloadBtn = Instance.new("TextButton")
-	reloadBtn.Size = UDim2.new(1, 0, 0, 64)
-	reloadBtn.Position = UDim2.new(0, 0, 0, 76)
+	reloadBtn.Size = UDim2.new(1, 0, 0, 44)
+	reloadBtn.Position = UDim2.new(0, 0, 0, 52) -- 44 + 8 gap
 	reloadBtn.Text = "RELOAD"
 	reloadBtn.Parent = btnCol
 	styleBtn(reloadBtn)
 	reloadBtn.MouseButton1Click:Connect(tryReload)
 
-	-- Compact weapon switch (3 small icons below RELOAD)
+	-- Weapon switch (slot cycle)
 	local switchBtn = Instance.new("TextButton")
-	switchBtn.Size = UDim2.new(1, 0, 0, 64)
-	switchBtn.Position = UDim2.new(0, 0, 0, 152)
+	switchBtn.Size = UDim2.new(1, 0, 0, 44)
+	switchBtn.Position = UDim2.new(0, 0, 0, 104) -- 52 + 44 + 8
 	switchBtn.Text = "SWAP"
 	switchBtn.Parent = btnCol
 	styleBtn(switchBtn)
@@ -1605,12 +1606,15 @@ if isTouch then
 		Remotes.SwitchWeapon:FireServer(nextSlot)
 	end)
 
-	-- ===== SPRINT TOGGLE (bottom-LEFT, away from buttons) =====
+	-- ===== SPRINT TOGGLE (bottom-LEFT, just above joystick) =====
+	-- Lowered from -180 → -100 so it doesn't visually crash into top-left
+	-- elements (BRONZE rank chip) on short-vertical mobile viewports.
+	-- Joystick reserves ~80px at corner; -100 keeps a small gap above it.
 	local sprintBtn = Instance.new("TextButton")
 	sprintBtn.Name = "MobileSprintBtn"
-	sprintBtn.Size = UDim2.new(0, 64, 0, 64)
+	sprintBtn.Size = UDim2.new(0, 44, 0, 44)
 	sprintBtn.AnchorPoint = Vector2.new(0, 1)
-	sprintBtn.Position = UDim2.new(0, 12, 1, -180) -- above default Roblox jump button
+	sprintBtn.Position = UDim2.new(0, 12, 1, -100)
 	sprintBtn.Text = "RUN"
 	sprintBtn.Parent = screenGui
 	styleBtn(sprintBtn)
@@ -1635,11 +1639,11 @@ if isTouch then
 	end)
 
 	-- Register mobile buttons for drag-to-reposition in HUD Edit mode.
-	-- (FIRE button already registered above; column buttons + sprint registered here.)
-	registerHudButton(adsBtn,    "hudAds",    UDim2.new(1, -12, 0.5, -110)) -- top of col
-	registerHudButton(reloadBtn, "hudReload", UDim2.new(1, -12, 0.5, -34))
-	registerHudButton(switchBtn, "hudSwap",   UDim2.new(1, -12, 0.5, 42))
-	registerHudButton(sprintBtn, "hudSprint", UDim2.new(0, 12, 1, -180))
+	-- Defaults match new compact layout (44px buttons; col size 148; sprint at -100).
+	registerHudButton(adsBtn,    "hudAds",    UDim2.new(1, -12, 0.5, -52)) -- top of col
+	registerHudButton(reloadBtn, "hudReload", UDim2.new(1, -12, 0.5, 0))
+	registerHudButton(switchBtn, "hudSwap",   UDim2.new(1, -12, 0.5, 52))
+	registerHudButton(sprintBtn, "hudSprint", UDim2.new(0, 12, 1, -100))
 end
 
 Remotes.AmmoUpdate.OnClientEvent:Connect(function(info: any)
