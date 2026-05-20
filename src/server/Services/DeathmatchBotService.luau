@@ -450,8 +450,11 @@ rebuildBot = function(oldBot: Model)
 	local sp = spawns[math.random(#spawns)]
 
 	local bot = BotModel.Build(name, BOT_HEALTH)
-	bot.Parent = Workspace
+	-- PivotTo BEFORE Parent: avoids a physics-race where the unanchored
+	-- Humanoid starts simulating at world origin (0,0,0) inside the lobby
+	-- baseplate before being moved to the arena spawn.
 	bot:PivotTo(sp.CFrame + Vector3.new(0, 5, 0))
+	bot.Parent = Workspace
 	bots[oldIdx] = bot
 	botState[bot] = newAIState()
 	local muzzle = BotModel.EquipRifle(bot)
@@ -517,8 +520,11 @@ local function spawnBotsToFill()
 		local sp = spawns[math.random(#spawns)]
 		local jitterX = (math.random() - 0.5) * 6
 		local jitterZ = (math.random() - 0.5) * 6
-		bot.Parent = Workspace
+		-- PivotTo BEFORE Parent: avoids a physics-race where the unanchored
+		-- Humanoid starts simulating at world origin (0,0,0) inside the lobby
+		-- baseplate before being moved to the arena spawn.
 		bot:PivotTo(sp.CFrame + Vector3.new(jitterX, 5, jitterZ))
+		bot.Parent = Workspace
 		table.insert(bots, bot)
 		botState[bot] = newAIState()
 		-- Equip rifle + cache muzzle for tracer origin
