@@ -24,21 +24,38 @@ screenGui.DisplayOrder = 110 -- above MainMenu (100) so GACHA button visible fro
 screenGui.Parent = playerGui
 
 -- =========================================================
--- GACHA BUTTON — original simple design (bottom-center, orange).
--- Rolling-strip case-reveal animation still triggers on click (handled below).
+-- GACHA BUTTON — bottom-center orange chip. Responsive size so it doesn't
+-- dominate the small mobile viewport (per user feedback "perkecil").
 -- =========================================================
 local gachaButton = Instance.new("TextButton")
-gachaButton.Size = UDim2.new(0, 220, 0, 56)
 gachaButton.AnchorPoint = Vector2.new(0.5, 1)
 gachaButton.Position = UDim2.new(0.5, 0, 1, -20)
 gachaButton.BackgroundColor3 = Color3.fromRGB(255, 180, 70)
 gachaButton.BorderSizePixel = 0
 gachaButton.AutoButtonColor = false
 gachaButton.Font = Enum.Font.GothamBlack
-gachaButton.TextSize = 22
 gachaButton.TextColor3 = Color3.fromRGB(28, 28, 38)
 gachaButton.Text = string.format("🎰 GACHA (%d)", GameConfig.CratePrice)
 gachaButton.Parent = screenGui
+
+local function refreshGachaSize()
+	local cam = workspace.CurrentCamera
+	local vw = cam and cam.ViewportSize.X or 1920
+	if vw < 700 then
+		gachaButton.Size = UDim2.new(0, 150, 0, 36)
+		gachaButton.TextSize = 14
+	elseif vw < 1100 then
+		gachaButton.Size = UDim2.new(0, 190, 0, 48)
+		gachaButton.TextSize = 18
+	else
+		gachaButton.Size = UDim2.new(0, 220, 0, 56)
+		gachaButton.TextSize = 22
+	end
+end
+refreshGachaSize()
+if workspace.CurrentCamera then
+	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshGachaSize)
+end
 
 local gachaCorner = Instance.new("UICorner")
 gachaCorner.CornerRadius = UDim.new(0, 8)
