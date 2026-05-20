@@ -500,11 +500,33 @@ feedbackLabel.TextStrokeTransparency = 0.3
 feedbackLabel.Text = ""
 feedbackLabel.Parent = screenGui
 
--- Weapon slot HUD: shows current slot + both weapons
+-- Weapon slot HUD: shows current slot + both weapons.
+-- On narrow mobile viewports (Studio Device Emulator iPhone 7 666x374) the
+-- default Roblox jump button sits at bottom-right corner ~50x50. User report:
+-- "tombol lompat ketumpuk dengan pemilihan senjata" — the panel right edge at
+-- viewport.X-20 was overlapping the Roblox jump button reserve zone. Fix:
+-- shrink chips + total panel width AND push the panel's right edge further
+-- left (anchor stays bottom-right, just bigger offset) so the jump button has
+-- a clear ~80px corner. Compact mode triggers on TouchEnabled + width<700
+-- (Studio Device Emulator keeps MouseEnabled=true so we use width check).
+local _slotCam = workspace.CurrentCamera
+local SLOT_IS_COMPACT = UserInputService.TouchEnabled and _slotCam and _slotCam.ViewportSize.X < 700
+-- Chip dimensions and panel layout vary by viewport mode.
+local CHIP_W = SLOT_IS_COMPACT and 100 or 130
+local CHIP_PAD_X = 8        -- left padding for first chip
+local CHIP_GAP = SLOT_IS_COMPACT and 8 or 4 -- desktop preserves original 4px gap (orig: chip2 x=142 = 8+130+4)
+-- Total panel width: 2 chips + gap + side padding. Desktop = 8+130+4+130+8 = 280
+-- (matches original). Compact = 8+100+8+100+8 = 224 (down from 280).
+local SLOT_PANEL_W = CHIP_PAD_X * 2 + CHIP_W * 2 + CHIP_GAP
+local SLOT_PANEL_H = SLOT_IS_COMPACT and 48 or 64
+-- Mobile: keep bottom-right anchor but shift left by 80px so Roblox's default
+-- jump button at the corner is unobstructed.
+local SLOT_PANEL_RIGHT_INSET = SLOT_IS_COMPACT and 80 or 20
+
 local slotPanel = Instance.new("Frame")
-slotPanel.Size = UDim2.new(0, 280, 0, 64)
+slotPanel.Size = UDim2.new(0, SLOT_PANEL_W, 0, SLOT_PANEL_H)
 slotPanel.AnchorPoint = Vector2.new(1, 1)
-slotPanel.Position = UDim2.new(1, -20, 1, -20)
+slotPanel.Position = UDim2.new(1, -SLOT_PANEL_RIGHT_INSET, 1, -20)
 slotPanel.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
 slotPanel.BackgroundTransparency = 0.25
 slotPanel.BorderSizePixel = 0
@@ -517,7 +539,7 @@ slotCorner.Parent = slotPanel
 
 local function makeSlotChip(key: string, position: UDim2, accentColor: Color3): (TextButton, TextLabel, TextLabel)
 	local chip = Instance.new("TextButton")
-	chip.Size = UDim2.new(0, 130, 1, -16)
+	chip.Size = UDim2.new(0, CHIP_W, 1, -16)
 	chip.Position = position
 	chip.BackgroundColor3 = Color3.fromRGB(28, 32, 44)
 	chip.BorderSizePixel = 0
@@ -565,8 +587,11 @@ local function makeSlotChip(key: string, position: UDim2, accentColor: Color3): 
 	return chip, keyLabel, nameLabel
 end
 
-local primaryChip, _, primaryLabel = makeSlotChip("1", UDim2.new(0, 8, 0, 8), Color3.fromRGB(220, 100, 60))
-local secondaryChip, _, secondaryLabel = makeSlotChip("2", UDim2.new(0, 142, 0, 8), Color3.fromRGB(60, 140, 220))
+-- Chip Y=8 with size (1, -16) yields top+bottom 8px padding inside the panel
+-- (works for both 48h compact and 64h desktop panels — chip stays centered).
+local CHIP_PAD_Y = 8
+local primaryChip, _, primaryLabel = makeSlotChip("1", UDim2.new(0, CHIP_PAD_X, 0, CHIP_PAD_Y), Color3.fromRGB(220, 100, 60))
+local secondaryChip, _, secondaryLabel = makeSlotChip("2", UDim2.new(0, CHIP_PAD_X + CHIP_W + CHIP_GAP, 0, CHIP_PAD_Y), Color3.fromRGB(60, 140, 220))
 
 primaryChip.MouseButton1Click:Connect(function()
 	Remotes.SwitchWeapon:FireServer("primary")
