@@ -45,18 +45,25 @@ function BotModel.Build(name: string, maxHealth: number, colors: BotColors?): Mo
 	local model = Instance.new("Model")
 	model.Name = name
 
+	-- Pre-position R6 parts relative to the torso BEFORE parenting. Motor6D
+	-- joints don't snap parts together until the model is parented to a
+	-- workspace AND physics runs; if we leave every part at (0,0,0), then a
+	-- PivotTo can land them inside each other and the Humanoid spawn
+	-- behavior gets weird (model "explodes" or HRP slides through the
+	-- floor). Standard R6 offsets — torso is the origin.
 	local hrp = mkPart("HumanoidRootPart", Vector3.new(2, 2, 1), Color3.new(1,1,1), false)
 	hrp.Transparency = 1
+	hrp.CFrame = CFrame.new(0, 0, 0)
 	hrp.Parent = model
 
-	local torso    = mkPart("Torso", Vector3.new(2, 2, 1), c.torso, true); torso.Parent = model
+	local torso    = mkPart("Torso", Vector3.new(2, 2, 1), c.torso, true);            torso.CFrame    = CFrame.new(0, 0, 0);    torso.Parent = model
 	-- Head slightly enlarged from 1.2 → 1.6 cube to make headshots a bit easier
 	-- (CS-style — head is still the highest-reward target, just less pixel-hunt).
-	local head     = mkPart("Head", Vector3.new(1.6, 1.6, 1.6), c.head, true); head.Parent = model
-	local leftArm  = mkPart("Left Arm",  Vector3.new(1, 2, 1), c.leftArm, true); leftArm.Parent = model
-	local rightArm = mkPart("Right Arm", Vector3.new(1, 2, 1), c.rightArm, true); rightArm.Parent = model
-	local leftLeg  = mkPart("Left Leg",  Vector3.new(1, 2, 1), c.leftLeg, true); leftLeg.Parent = model
-	local rightLeg = mkPart("Right Leg", Vector3.new(1, 2, 1), c.rightLeg, true); rightLeg.Parent = model
+	local head     = mkPart("Head", Vector3.new(1.6, 1.6, 1.6), c.head, true);        head.CFrame     = CFrame.new(0, 1.8, 0);  head.Parent = model
+	local leftArm  = mkPart("Left Arm",  Vector3.new(1, 2, 1), c.leftArm, true);      leftArm.CFrame  = CFrame.new(-1.5, 0, 0); leftArm.Parent = model
+	local rightArm = mkPart("Right Arm", Vector3.new(1, 2, 1), c.rightArm, true);     rightArm.CFrame = CFrame.new(1.5, 0, 0);  rightArm.Parent = model
+	local leftLeg  = mkPart("Left Leg",  Vector3.new(1, 2, 1), c.leftLeg, true);      leftLeg.CFrame  = CFrame.new(-0.5, -2, 0);leftLeg.Parent = model
+	local rightLeg = mkPart("Right Leg", Vector3.new(1, 2, 1), c.rightLeg, true);     rightLeg.CFrame = CFrame.new(0.5, -2, 0); rightLeg.Parent = model
 
 	local humanoid = Instance.new("Humanoid")
 	humanoid.RigType = Enum.HumanoidRigType.R6
@@ -104,7 +111,13 @@ end
 -- The weapon is built from primitive blocks so it stays cheap and matches the
 -- low-poly look of the procedural maps + viewmodel.
 -- =====================================================================
-local function mkWeaponPart(parent: Instance, size: Vector3, color: Color3, material: Enum.Material?): Part
+-- nearbyAnchor: an existing positioned part whose CFrame we copy onto the
+-- new weapon part so it doesn't briefly spawn at (0,0,0) inside the lobby
+-- baseplate before the weld snaps it home. The bot model has already been
+-- placed at its arena spawn by the time EquipRifle runs, so we want any
+-- new parts to materialize near that spawn — otherwise unanchored physics
+-- can push the bot when overlapping geometry resolves.
+local function mkWeaponPart(parent: Instance, size: Vector3, color: Color3, material: Enum.Material?, nearbyAnchor: BasePart?): Part
 	local p = Instance.new("Part")
 	p.Size = size
 	p.Color = color
@@ -114,12 +127,19 @@ local function mkWeaponPart(parent: Instance, size: Vector3, color: Color3, mate
 	p.Massless = true
 	p.TopSurface = Enum.SurfaceType.Smooth
 	p.BottomSurface = Enum.SurfaceType.Smooth
+	if nearbyAnchor then
+		p.CFrame = nearbyAnchor.CFrame
+	end
 	p.Parent = parent
 	return p
 end
 
 -- Weld two parts rigidly at a relative offset. Part1 is the moving piece.
+-- We also pre-set Part1.CFrame to Part0 * C0 so the weld doesn't have to
+-- yank the part across the world on activation (a long yank can knock
+-- unanchored connected parts around momentarily).
 local function weldRigid(p0: BasePart, p1: BasePart, c0: CFrame)
+	p1.CFrame = p0.CFrame * c0
 	local w = Instance.new("Weld")
 	w.Part0 = p0
 	w.Part1 = p1
@@ -159,23 +179,23 @@ function BotModel.EquipRifle(model: Model): Attachment?
 	local magColor = Color3.fromRGB(25, 28, 35)
 
 	-- Body (receiver) — main block, sits just past the hand
-	local body = mkWeaponPart(weaponFolder, Vector3.new(0.45, 0.45, 2.4), bodyColor, Enum.Material.Metal)
+	local body = mkWeaponPart(weaponFolder, Vector3.new(0.45, 0.45, 2.4), bodyColor, Enum.Material.Metal, rightArm)
 	weldRigid(rightArm, body, CFrame.new(0, -1.4, 0) * CFrame.Angles(-math.pi/2, 0, 0))
 
 	-- Barrel — thin block extending forward from body
-	local barrel = mkWeaponPart(weaponFolder, Vector3.new(0.22, 0.22, 1.4), bodyColor, Enum.Material.Metal)
+	local barrel = mkWeaponPart(weaponFolder, Vector3.new(0.22, 0.22, 1.4), bodyColor, Enum.Material.Metal, body)
 	weldRigid(body, barrel, CFrame.new(0, 0, -1.9))
 
 	-- Magazine below body
-	local mag = mkWeaponPart(weaponFolder, Vector3.new(0.4, 0.7, 0.5), magColor, Enum.Material.Plastic)
+	local mag = mkWeaponPart(weaponFolder, Vector3.new(0.4, 0.7, 0.5), magColor, Enum.Material.Plastic, body)
 	weldRigid(body, mag, CFrame.new(0, -0.55, 0.3))
 
 	-- Stock behind body
-	local stock = mkWeaponPart(weaponFolder, Vector3.new(0.35, 0.45, 0.9), accentColor, Enum.Material.Wood)
+	local stock = mkWeaponPart(weaponFolder, Vector3.new(0.35, 0.45, 0.9), accentColor, Enum.Material.Wood, body)
 	weldRigid(body, stock, CFrame.new(0, 0, 1.65))
 
 	-- Sight rail on top
-	local sight = mkWeaponPart(weaponFolder, Vector3.new(0.3, 0.15, 0.6), accentColor, Enum.Material.Metal)
+	local sight = mkWeaponPart(weaponFolder, Vector3.new(0.3, 0.15, 0.6), accentColor, Enum.Material.Metal, body)
 	weldRigid(body, sight, CFrame.new(0, 0.3, -0.5))
 
 	-- Muzzle attachment at the tip of the barrel — used as shot origin
@@ -186,34 +206,34 @@ function BotModel.EquipRifle(model: Model): Attachment?
 
 	-- Holstered pistol on back of torso for extra "tactical" look
 	if torso then
-		local holster = mkWeaponPart(weaponFolder, Vector3.new(0.4, 0.7, 0.25), bodyColor, Enum.Material.Metal)
+		local holster = mkWeaponPart(weaponFolder, Vector3.new(0.4, 0.7, 0.25), bodyColor, Enum.Material.Metal, torso)
 		weldRigid(torso, holster, CFrame.new(0.7, -0.2, 0.55))
 
 		-- Front chest vest plate (so bots look less like plain colored cubes)
-		local vest = mkWeaponPart(weaponFolder, Vector3.new(1.85, 1.5, 0.35), Color3.fromRGB(28, 30, 36), Enum.Material.Fabric)
+		local vest = mkWeaponPart(weaponFolder, Vector3.new(1.85, 1.5, 0.35), Color3.fromRGB(28, 30, 36), Enum.Material.Fabric, torso)
 		weldRigid(torso, vest, CFrame.new(0, 0.1, -0.55))
 		-- Mag pouches on the vest (three small bumps)
 		for i = -1, 1 do
-			local pouch = mkWeaponPart(weaponFolder, Vector3.new(0.42, 0.45, 0.18), Color3.fromRGB(20, 22, 28), Enum.Material.Fabric)
+			local pouch = mkWeaponPart(weaponFolder, Vector3.new(0.42, 0.45, 0.18), Color3.fromRGB(20, 22, 28), Enum.Material.Fabric, torso)
 			weldRigid(torso, pouch, CFrame.new(i * 0.55, -0.1, -0.78))
 		end
 		-- Shoulder pads
 		local leftArm = model:FindFirstChild("Left Arm") :: BasePart?
 		if leftArm then
-			local lShoulder = mkWeaponPart(weaponFolder, Vector3.new(1.15, 0.5, 1.15), Color3.fromRGB(28, 30, 36), Enum.Material.Fabric)
+			local lShoulder = mkWeaponPart(weaponFolder, Vector3.new(1.15, 0.5, 1.15), Color3.fromRGB(28, 30, 36), Enum.Material.Fabric, leftArm)
 			weldRigid(leftArm, lShoulder, CFrame.new(0, 0.85, 0))
 		end
-		local rShoulder = mkWeaponPart(weaponFolder, Vector3.new(1.15, 0.5, 1.15), Color3.fromRGB(28, 30, 36), Enum.Material.Fabric)
+		local rShoulder = mkWeaponPart(weaponFolder, Vector3.new(1.15, 0.5, 1.15), Color3.fromRGB(28, 30, 36), Enum.Material.Fabric, rightArm)
 		weldRigid(rightArm, rShoulder, CFrame.new(0, 0.85, 0))
 	end
 
 	-- Helmet on head (sized for the 1.6 cube head)
 	local head = model:FindFirstChild("Head") :: BasePart?
 	if head then
-		local helmet = mkWeaponPart(weaponFolder, Vector3.new(1.8, 0.7, 1.8), Color3.fromRGB(28, 30, 36), Enum.Material.Metal)
+		local helmet = mkWeaponPart(weaponFolder, Vector3.new(1.8, 0.7, 1.8), Color3.fromRGB(28, 30, 36), Enum.Material.Metal, head)
 		weldRigid(head, helmet, CFrame.new(0, 0.7, 0))
 		-- Visor strip across the brow
-		local visor = mkWeaponPart(weaponFolder, Vector3.new(1.5, 0.22, 0.1), Color3.fromRGB(60, 80, 110), Enum.Material.Glass)
+		local visor = mkWeaponPart(weaponFolder, Vector3.new(1.5, 0.22, 0.1), Color3.fromRGB(60, 80, 110), Enum.Material.Glass, head)
 		weldRigid(head, visor, CFrame.new(0, 0.15, -0.85))
 	end
 
@@ -237,15 +257,15 @@ function BotModel.EquipKnife(model: Model)
 	folder.Parent = model
 
 	-- Handle
-	local handle = mkWeaponPart(folder, Vector3.new(0.32, 0.32, 0.9), Color3.fromRGB(30, 25, 20), Enum.Material.Wood)
+	local handle = mkWeaponPart(folder, Vector3.new(0.32, 0.32, 0.9), Color3.fromRGB(30, 25, 20), Enum.Material.Wood, rightArm)
 	weldRigid(rightArm, handle, CFrame.new(0, -1.2, 0) * CFrame.Angles(-math.pi/2, 0, 0))
 
 	-- Guard
-	local guard = mkWeaponPart(folder, Vector3.new(0.7, 0.18, 0.25), Color3.fromRGB(70, 70, 80), Enum.Material.Metal)
+	local guard = mkWeaponPart(folder, Vector3.new(0.7, 0.18, 0.25), Color3.fromRGB(70, 70, 80), Enum.Material.Metal, handle)
 	weldRigid(handle, guard, CFrame.new(0, 0, -0.5))
 
 	-- Blade — angled forward for a "ready to slash" pose
-	local blade = mkWeaponPart(folder, Vector3.new(0.2, 0.55, 1.4), Color3.fromRGB(200, 210, 220), Enum.Material.Metal)
+	local blade = mkWeaponPart(folder, Vector3.new(0.2, 0.55, 1.4), Color3.fromRGB(200, 210, 220), Enum.Material.Metal, handle)
 	weldRigid(handle, blade, CFrame.new(0, 0, -1.2) * CFrame.Angles(math.rad(-10), 0, 0))
 end
 
