@@ -562,9 +562,22 @@ end)
 -- button's accent show only on the left edge + hover stroke + icon tint.
 type SideButton = { label: string, icon: string, accent: Color3, signal: string }
 
-local SIDE_W = 200
+-- Mobile detection: TouchEnabled + no Mouse + narrow viewport. On mobile the
+-- side button columns (was 200px each) ate too much horizontal space and
+-- visually covered the center mode cards (DEATHMATCH / PRACTICE). We collapse
+-- them to a narrow icon-only width and pull them to the literal screen edges
+-- so the center stays clear and tappable. This is the minimum-risk fix:
+-- existing layout math (yOffset stack, side anchor positions, hover, signals)
+-- is preserved — we only change the width and the edge inset.
+local viewportW = (camera and camera.ViewportSize.X) or 1920
+local isMobile = UserInputService.TouchEnabled
+	and not UserInputService.MouseEnabled
+	and viewportW < 900
+
+local SIDE_W = if isMobile then 100 else 200
 local SIDE_H = 56
 local SIDE_GAP = 12
+local SIDE_EDGE_INSET = if isMobile then 8 else 40
 
 local function makeSideButton(parent: Instance, def: SideButton, anchor: Vector2, position: UDim2)
 	local btn = Instance.new("TextButton")
@@ -598,18 +611,26 @@ local function makeSideButton(parent: Instance, def: SideButton, anchor: Vector2
 	ac.CornerRadius = UDim.new(0, 2)
 	ac.Parent = accentBar
 
-	-- Icon (left side, tinted with accent)
+	-- Icon (left side on desktop, centered on mobile, tinted with accent)
 	local iconLbl = Instance.new("TextLabel")
-	iconLbl.Size = UDim2.new(0, 32, 1, 0)
-	iconLbl.Position = UDim2.new(0, 12, 0, 0)
+	if isMobile then
+		-- Mobile: icon-only, centered to fit 100px width
+		iconLbl.Size = UDim2.new(1, 0, 1, 0)
+		iconLbl.Position = UDim2.new(0, 0, 0, 0)
+		iconLbl.TextXAlignment = Enum.TextXAlignment.Center
+	else
+		iconLbl.Size = UDim2.new(0, 32, 1, 0)
+		iconLbl.Position = UDim2.new(0, 12, 0, 0)
+	end
 	iconLbl.BackgroundTransparency = 1
 	iconLbl.Font = Enum.Font.GothamBold
-	iconLbl.TextSize = 18
+	iconLbl.TextSize = if isMobile then 22 else 18
 	iconLbl.TextColor3 = def.accent
 	iconLbl.Text = def.icon
 	iconLbl.Parent = btn
 
-	-- Label (right side, white)
+	-- Label (right side, white). Hidden on mobile — icon-only layout to keep
+	-- the side buttons narrow so the center mode cards are not obscured.
 	local labelLbl = Instance.new("TextLabel")
 	labelLbl.Size = UDim2.new(1, -58, 1, 0)
 	labelLbl.Position = UDim2.new(0, 50, 0, 0)
@@ -619,6 +640,7 @@ local function makeSideButton(parent: Instance, def: SideButton, anchor: Vector2
 	labelLbl.TextColor3 = Color3.fromRGB(225, 228, 240)
 	labelLbl.TextXAlignment = Enum.TextXAlignment.Left
 	labelLbl.Text = def.label
+	labelLbl.Visible = not isMobile
 	labelLbl.Parent = btn
 
 	btn.MouseEnter:Connect(function()
@@ -649,7 +671,7 @@ local leftButtons: { SideButton } = {
 
 for i, def in leftButtons do
 	local yOffset = -((#leftButtons - 1) * (SIDE_H + SIDE_GAP)) / 2 + (i - 1) * (SIDE_H + SIDE_GAP)
-	makeSideButton(screenGui, def, Vector2.new(0, 0.5), UDim2.new(0, 40, 0.5, yOffset))
+	makeSideButton(screenGui, def, Vector2.new(0, 0.5), UDim2.new(0, SIDE_EDGE_INSET, 0.5, yOffset))
 end
 
 -- Right column buttons
@@ -661,7 +683,7 @@ local rightButtons: { SideButton } = {
 
 for i, def in rightButtons do
 	local yOffset = -((#rightButtons - 1) * (SIDE_H + SIDE_GAP)) / 2 + (i - 1) * (SIDE_H + SIDE_GAP)
-	makeSideButton(screenGui, def, Vector2.new(1, 0.5), UDim2.new(1, -40, 0.5, yOffset))
+	makeSideButton(screenGui, def, Vector2.new(1, 0.5), UDim2.new(1, -SIDE_EDGE_INSET, 0.5, yOffset))
 end
 
 -- Player name at bottom-left

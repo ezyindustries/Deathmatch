@@ -8,6 +8,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared.Modules.Remotes)
 local ClientSignals = require(Shared.Modules.ClientSignals)
 local MatchState = require(Shared.Modules.MatchState)
+local UITheme = require(Shared.Modules.UITheme)
 
 local PauseMenuController = {}
 
@@ -18,7 +19,10 @@ local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "PauseMenuHUD"
 screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
-screenGui.DisplayOrder = 90
+-- DisplayOrder must sit above all in-match HUD layers so the modal overlay
+-- covers FIRE / RELOAD / SWAP / RUN buttons. KillFeed sits at 80 and
+-- MatchHUD/WeaponHUD around 0-50, so 200 keeps headroom for other HUDs.
+screenGui.DisplayOrder = 200
 screenGui.Parent = playerGui
 
 -- Theme: dark steel-gray with single amber accent (matches armory theme of main menu)
@@ -85,12 +89,21 @@ end)
 -- ============================================================
 -- OVERLAY + PANEL
 -- ============================================================
-local overlay = Instance.new("Frame")
+-- Overlay is a TextButton (not a Frame) with Modal=true so that taps/clicks
+-- on the dimmed area do NOT pass through to the in-match HUD buttons (FIRE,
+-- RELOAD, SWAP, RUN) below. Modal=true tells the Roblox input router to
+-- swallow input directed at lower-DisplayOrder GUIs while this is visible.
+-- Color uses UITheme.bgDeepest + a darker transparency (0.2 vs prior 0.4) so
+-- the HUD doesn't bleed through visually either.
+local overlay = Instance.new("TextButton")
 overlay.Size = UDim2.new(1, 0, 1, 0)
-overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-overlay.BackgroundTransparency = 0.4
+overlay.BackgroundColor3 = UITheme.Color.bgDeepest
+overlay.BackgroundTransparency = 0.2
 overlay.Visible = false
 overlay.BorderSizePixel = 0
+overlay.AutoButtonColor = false
+overlay.Text = ""
+overlay.Modal = true
 overlay.Parent = screenGui
 
 -- Panel is wider to fit a 3x2 grid of cards instead of a 7-tall list.
@@ -398,7 +411,7 @@ local function setOpen(value: boolean)
 	overlay.Visible = value
 	if value then
 		refreshLobbyOnly()
-		TweenService:Create(overlay, TweenInfo.new(0.15), { BackgroundTransparency = 0.4 }):Play()
+		TweenService:Create(overlay, TweenInfo.new(0.15), { BackgroundTransparency = 0.2 }):Play()
 	end
 	ClientSignals.Get("PauseMenuToggle"):Fire(value)
 end

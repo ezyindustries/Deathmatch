@@ -1,6 +1,7 @@
 --!strict
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared.Modules.Remotes)
@@ -58,6 +59,22 @@ panel.Parent = overlay
 local panelCorner = Instance.new("UICorner")
 panelCorner.CornerRadius = UDim.new(0, 14)
 panelCorner.Parent = panel
+
+-- Viewport-clamped sizing. On small viewports (mobile portrait/landscape) the
+-- old fixed 800x540 panel extended off-screen — cutting off the top + bottom
+-- (so tabs and close buttons became unreachable). Clamp to a fraction of the
+-- live viewport and reapply whenever the viewport changes (e.g. orientation).
+local function refreshPanelSize()
+	local cam = Workspace.CurrentCamera
+	local v = cam and cam.ViewportSize or Vector2.new(800, 540)
+	local w = math.min(800, v.X * 0.95)
+	local h = math.min(540, v.Y * 0.92)
+	panel.Size = UDim2.fromOffset(w, h)
+end
+refreshPanelSize()
+if Workspace.CurrentCamera then
+	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshPanelSize)
+end
 
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -40, 0, 32)

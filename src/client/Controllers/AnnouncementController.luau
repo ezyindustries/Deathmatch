@@ -220,9 +220,13 @@ local function emitParticleBurst(tierColor: Color3)
 		corner.Parent = p
 		p.Parent = particleLayer
 
-		-- Radial direction with downward gravity bias (additive Y offset on end)
+		-- Radial direction with downward gravity bias (additive Y offset on end).
+		-- Clamp the radius ceiling to a fraction of the live viewport width so
+		-- confetti never flies off-screen on narrow mobile devices (~390px).
+		local viewportW = (Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize.X) or 1920
+		local maxRadius = math.max(PARTICLE_RADIUS_MIN, math.min(PARTICLE_RADIUS_MAX, viewportW * 0.4))
 		local angle = math.rad(math.random(0, 359))
-		local radius = math.random(PARTICLE_RADIUS_MIN, PARTICLE_RADIUS_MAX)
+		local radius = math.random(PARTICLE_RADIUS_MIN, math.floor(maxRadius))
 		local endX = centerX + math.cos(angle) * radius
 		local endY = centerY + math.sin(angle) * radius + 60 -- gravity drift
 
