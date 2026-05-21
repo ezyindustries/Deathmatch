@@ -194,128 +194,154 @@ boxesLayout.SortOrder = Enum.SortOrder.LayoutOrder
 boxesLayout.Padding = UDim.new(0, DESKTOP_GAP)
 boxesLayout.Parent = boxesRow
 
-local boxes: { TextBox } = {}
-local boxStrokes: { UIStroke } = {}
-
 local CODE_LEN = 6
 
 -- Forward declarations so callbacks above their definition still work.
 local refreshSubmitEnabled: () -> ()
 local getCode: () -> string
 
-local function focusBox(index: number)
-	local b = boxes[index]
-	if b then
-		b:CaptureFocus()
-	end
+-- The 6 visible "boxes" are now display-only TextLabels. All input is
+-- captured by a SINGLE invisible TextBox overlaying the entire row.
+-- This avoids the per-box-focus race on mobile keyboards that produced
+-- duplicate characters + made backspace unreliable (mobile keyboards
+-- don't deliver KeyCode.Backspace through individual TextBox InputBegan).
+local boxLabels: { TextLabel } = {}
+local boxFrames: { Frame } = {}
+local boxStrokes: { UIStroke } = {}
+
+for i = 1, CODE_LEN do
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.fromOffset(DESKTOP_BOX_W, DESKTOP_BOX_H)
+	frame.BackgroundColor3 = UITheme.Color.bgElevated
+	frame.BorderSizePixel = 0
+	frame.LayoutOrder = i
+	frame.Parent = boxesRow
+	UITheme.corner(frame, "sm")
+	local stroke = UITheme.stroke(frame, "borderSubtle", 1)
+
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.fromScale(1, 1)
+	lbl.BackgroundTransparency = 1
+	lbl.Font = UITheme.Font.mono
+	lbl.TextSize = UITheme.FontSize.h2
+	lbl.TextColor3 = UITheme.Color.accentPrimary
+	lbl.Text = ""
+	lbl.TextXAlignment = Enum.TextXAlignment.Center
+	lbl.TextYAlignment = Enum.TextYAlignment.Center
+	lbl.Parent = frame
+
+	-- Placeholder dot when empty (subtle, theme tertiary)
+	local placeholder = Instance.new("TextLabel")
+	placeholder.Size = UDim2.fromScale(1, 1)
+	placeholder.BackgroundTransparency = 1
+	placeholder.Font = UITheme.Font.body
+	placeholder.TextSize = UITheme.FontSize.body
+	placeholder.TextColor3 = UITheme.Color.textTertiary
+	placeholder.Text = "·"
+	placeholder.TextXAlignment = Enum.TextXAlignment.Center
+	placeholder.TextYAlignment = Enum.TextYAlignment.Center
+	placeholder.Name = "Placeholder"
+	placeholder.Parent = frame
+
+	boxFrames[i] = frame
+	boxLabels[i] = lbl
+	boxStrokes[i] = stroke
 end
 
-local function distributeChars(startIndex: number, chars: string)
-	-- Fill chars across boxes starting at startIndex. Each box gets one char.
-	local cleaned = sanitize(chars)
-	local i = startIndex
-	for k = 1, #cleaned do
-		if i > CODE_LEN then break end
-		boxes[i].Text = string.sub(cleaned, k, k)
-		i += 1
-	end
-	-- Focus the next empty box, or the last one if all filled.
-	local nextEmpty = CODE_LEN
-	for j = 1, CODE_LEN do
-		if boxes[j].Text == "" then
-			nextEmpty = j
+-- ============================================================
+-- Hidden single input — captures all keystrokes, displays via labels
+-- ============================================================
+local hiddenInput = Instance.new("TextBox")
+hiddenInput.Size = UDim2.fromScale(1, 1)
+hiddenInput.Position = UDim2.fromScale(0, 0)
+hiddenInput.BackgroundTransparency = 1
+hiddenInput.TextTransparency = 1 -- text never rendered; only labels show it
+hiddenInput.PlaceholderText = ""
+hiddenInput.Text = ""
+hiddenInput.ClearTextOnFocus = false
+hiddenInput.MultiLine = false
+hiddenInput.TextEditable = true
+hiddenInput.ZIndex = 10 -- above the visual frames so taps reach it
+-- Cap input length at CODE_LEN — Roblox itself enforces this on mobile
+-- keyboard which prevents the "double character" issue from per-box races.
+hiddenInput.Parent = boxesRow
+
+-- Activate / deactivate cursor visually on focus
+hiddenInput.Focused:Connect(function()
+	-- Highlight first empty box
+	for i, f in boxFrames do
+		if boxLabels[i].Text == "" then
+			boxStrokes[i].Color = UITheme.Color.accentPrimary
+			boxStrokes[i].Thickness = 2
 			break
 		end
 	end
-	focusBox(nextEmpty)
+end)
+hiddenInput.FocusLost:Connect(function()
+	for _, s in boxStrokes do
+		s.Color = UITheme.Color.borderSubtle
+		s.Thickness = 1
+	end
+end)
+
+-- Tap any box → re-focus the hidden input
+for _, frame in boxFrames do
+	frame.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			hiddenInput:CaptureFocus()
+		end
+	end)
+end
+
+-- Mirror the hidden input's Text to the 6 visible labels. Sanitize +
+-- uppercase + clamp to 6 chars. This naturally handles backspace (Roblox
+-- TextBox removes the last char → handler updates labels → last label
+-- empties + highlight moves back).
+local function syncBoxesFromInput()
+	local raw = hiddenInput.Text
+	local cleaned = sanitize(raw)
+	if #cleaned > CODE_LEN then
+		cleaned = string.sub(cleaned, 1, CODE_LEN)
+	end
+	-- If sanitize changed the text (lowercase, invalid chars), feed it back
+	-- so future backspaces work against the cleaned version.
+	if cleaned ~= raw then
+		hiddenInput.Text = cleaned
+		return -- the assignment fires this handler again with the cleaned value
+	end
+	-- Update each label
+	for i = 1, CODE_LEN do
+		local char = string.sub(cleaned, i, i)
+		boxLabels[i].Text = char
+		local placeholder = boxFrames[i]:FindFirstChild("Placeholder")
+		if placeholder and placeholder:IsA("TextLabel") then
+			placeholder.Visible = char == ""
+		end
+	end
+	-- Highlight the box at the current input position (first empty)
+	for i, s in boxStrokes do
+		if i == #cleaned + 1 and hiddenInput:IsFocused() then
+			s.Color = UITheme.Color.accentPrimary
+			s.Thickness = 2
+		elseif boxLabels[i].Text ~= "" then
+			s.Color = UITheme.Color.borderSubtle
+			s.Thickness = 1
+		else
+			s.Color = UITheme.Color.borderSubtle
+			s.Thickness = 1
+		end
+	end
 	refreshSubmitEnabled()
 end
 
-for i = 1, CODE_LEN do
-	local box = Instance.new("TextBox")
-	box.Size = UDim2.fromOffset(DESKTOP_BOX_W, DESKTOP_BOX_H)
-	box.BackgroundColor3 = UITheme.Color.bgElevated
-	box.BorderSizePixel = 0
-	box.Font = UITheme.Font.mono
-	box.TextSize = UITheme.FontSize.h2
-	box.TextColor3 = UITheme.Color.accentPrimary
-	box.PlaceholderText = "·"
-	box.PlaceholderColor3 = UITheme.Color.textTertiary
-	box.Text = ""
-	box.ClearTextOnFocus = false
-	box.TextXAlignment = Enum.TextXAlignment.Center
-	box.LayoutOrder = i
-	box.Parent = boxesRow
-	UITheme.corner(box, "sm")
-	local stroke = UITheme.stroke(box, "borderSubtle", 1)
-	boxes[i] = box
-	boxStrokes[i] = stroke
+hiddenInput:GetPropertyChangedSignal("Text"):Connect(syncBoxesFromInput)
 
-	box.Focused:Connect(function()
-		stroke.Color = UITheme.Color.accentPrimary
-		stroke.Thickness = 2
-	end)
-	box.FocusLost:Connect(function()
-		stroke.Color = UITheme.Color.borderSubtle
-		stroke.Thickness = 1
-	end)
+-- Replace boxes[] references with boxLabels[] so the rest of the file works.
+local boxes = boxLabels
 
-	-- Per-box text gating: enforce single allowed char; treat any longer
-	-- input (e.g. paste) as a distribute-across-boxes operation.
-	box:GetPropertyChangedSignal("Text"):Connect(function()
-		local raw = box.Text
-		if raw == "" then
-			refreshSubmitEnabled()
-			return
-		end
-		if #raw == 1 then
-			local upper = string.upper(raw)
-			if isAllowedChar(upper) then
-				if upper ~= raw then box.Text = upper end
-				-- Auto-advance focus to next box
-				if i < CODE_LEN then
-					focusBox(i + 1)
-				else
-					box:ReleaseFocus()
-				end
-				refreshSubmitEnabled()
-			else
-				-- Strip invalid char
-				box.Text = ""
-				refreshSubmitEnabled()
-			end
-			return
-		end
-		-- Multi-char input (likely paste): clean, fit single char in this box,
-		-- distribute remainder across subsequent boxes.
-		local cleaned = sanitize(raw)
-		if #cleaned == 0 then
-			box.Text = ""
-			refreshSubmitEnabled()
-			return
-		end
-		box.Text = string.sub(cleaned, 1, 1)
-		if #cleaned > 1 then
-			distributeChars(i + 1, string.sub(cleaned, 2))
-		else
-			if i < CODE_LEN then
-				focusBox(i + 1)
-			end
-			refreshSubmitEnabled()
-		end
-	end)
-
-	-- Backspace on empty box → move focus left + clear prev box.
-	box.InputBegan:Connect(function(input: InputObject)
-		if input.KeyCode == Enum.KeyCode.Backspace then
-			if box.Text == "" and i > 1 then
-				local prev = boxes[i - 1]
-				prev.Text = ""
-				focusBox(i - 1)
-				refreshSubmitEnabled()
-			end
-		end
-	end)
+local function focusBox(_index: number)
+	hiddenInput:CaptureFocus()
 end
 
 -- Resize boxes + gap on viewport change. Ultra-mobile (vw < 600) uses 26x36
@@ -333,9 +359,13 @@ local function refreshBoxes()
 	else
 		w, h, gap, fontSize = DESKTOP_BOX_W, DESKTOP_BOX_H, DESKTOP_GAP, UITheme.FontSize.h2
 	end
-	for _, b in boxes do
-		b.Size = UDim2.fromOffset(w, h)
-		b.TextSize = fontSize
+	for i, f in boxFrames do
+		f.Size = UDim2.fromOffset(w, h)
+		boxLabels[i].TextSize = fontSize
+		local ph = f:FindFirstChild("Placeholder")
+		if ph and ph:IsA("TextLabel") then
+			ph.TextSize = math.floor(fontSize * 0.8)
+		end
 	end
 	boxesLayout.Padding = UDim.new(0, gap)
 end
@@ -392,11 +422,9 @@ UITheme.stroke(cancelBtn, "borderSubtle", 1)
 -- Submit gating + helpers
 -- ============================================================
 getCode = function(): string
-	local s = ""
-	for _, b in boxes do
-		s ..= b.Text
-	end
-	return s
+	-- Single source of truth: read directly from the hidden input (already
+	-- sanitized + clamped to CODE_LEN by syncBoxesFromInput).
+	return hiddenInput.Text
 end
 
 refreshSubmitEnabled = function()
@@ -415,11 +443,9 @@ refreshSubmitEnabled = function()
 end
 
 local function clearBoxes()
-	for _, b in boxes do
-		b.Text = ""
-	end
+	hiddenInput.Text = "" -- triggers syncBoxesFromInput → clears all labels
 	refreshSubmitEnabled()
-	focusBox(1)
+	hiddenInput:CaptureFocus()
 end
 
 local function setOpen(value: boolean)
