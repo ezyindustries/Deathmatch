@@ -249,11 +249,14 @@ for i = 1, CODE_LEN do
 end
 
 -- ============================================================
--- Hidden single input — captures all keystrokes, displays via labels
+-- Hidden single input — captures all keystrokes, displays via labels.
+-- IMPORTANT: parented to PANEL (not boxesRow), absolute-positioned over
+-- the row. boxesRow uses UIListLayout which would otherwise insert this
+-- input as a 7th child and push the visible frames off-axis.
 -- ============================================================
 local hiddenInput = Instance.new("TextBox")
-hiddenInput.Size = UDim2.fromScale(1, 1)
-hiddenInput.Position = UDim2.fromScale(0, 0)
+hiddenInput.Size = UDim2.new(1, -2 * UITheme.Space.xxl, 0, 60)
+hiddenInput.Position = UDim2.new(0, UITheme.Space.xxl, 0, 76)
 hiddenInput.BackgroundTransparency = 1
 hiddenInput.TextTransparency = 1 -- text never rendered; only labels show it
 hiddenInput.PlaceholderText = ""
@@ -264,7 +267,7 @@ hiddenInput.TextEditable = true
 hiddenInput.ZIndex = 10 -- above the visual frames so taps reach it
 -- Cap input length at CODE_LEN — Roblox itself enforces this on mobile
 -- keyboard which prevents the "double character" issue from per-box races.
-hiddenInput.Parent = boxesRow
+hiddenInput.Parent = panel
 
 -- Activate / deactivate cursor visually on focus
 hiddenInput.Focused:Connect(function()

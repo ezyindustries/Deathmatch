@@ -416,6 +416,14 @@ local function applyTeleportDataToWorkspace(player: Player)
 	end
 	if Workspace:GetAttribute("InPrivateServer") ~= true then
 		Workspace:SetAttribute("InPrivateServer", true)
+		-- Pause the LOBBY→VOTING auto-advance until host explicitly clicks
+		-- START MATCH. Otherwise the standard 2s LOBBY timer fires and the
+		-- party-lobby state is gone before anyone is ready.
+		pcall(function()
+			local MSS = require(script.Parent.MatchStateService)
+			MSS.HoldAutoAdvance(true)
+			print("[PrivateLobby] Held MatchState auto-advance — waiting for host START")
+		end)
 	end
 end
 
@@ -497,6 +505,9 @@ if IS_PRIVATE_SERVER_BOOT then
 				"[PrivateLobby] Host %s started match with %d members",
 				p.Name, #players
 			))
+			-- Release the auto-advance hold so VOTING→STARTING→MATCH cycles
+			-- on their normal timers from here.
+			MatchStateService.HoldAutoAdvance(false)
 			MatchStateService.AdvanceTo("VOTING")
 		end)
 	end)
