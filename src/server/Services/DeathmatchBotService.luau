@@ -693,7 +693,16 @@ local function placeBotAt(bot: Model, targetCF: CFrame)
 	BotModel.UnanchorRig(bot)
 end
 
+-- Private servers (created via TeleportService:ReserveServer for parties)
+-- skip bot fill so the host's friends fill the slots instead. Detected via
+-- game.PrivateServerId (empty string on public matchmaking servers).
+local IS_PRIVATE_SERVER = game.PrivateServerId ~= ""
+if IS_PRIVATE_SERVER then
+	print("[DeathmatchBot] Private server detected — bot fill disabled (PrivateServerId=" .. game.PrivateServerId .. ")")
+end
+
 local function spawnBotsToFill()
+	if IS_PRIVATE_SERVER then return end
 	-- Retry up to 10 times waiting for arena spawns (max ~5 seconds total)
 	local spawns = getArenaSpawnPoints()
 	local retries = 0

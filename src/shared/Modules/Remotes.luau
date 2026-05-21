@@ -51,6 +51,22 @@ local REMOTE_NAMES = {
 	"CasualPlantProgress",   -- server → client: { progress 0..1 } (sent to planting T)
 	"CasualDefuseProgress",  -- server → client: { progress 0..1 } (sent to defusing CT)
 	"CasualWaitingForMatch", -- server → client: boolean. true = show "waiting for next casual match" overlay, false = hide
+	-- Multiplayer (server browser + private party + join-by-code)
+	"PrivateLobbyUpdate",    -- server → all clients in lobby: { code, hostUserId, members: { {userId, name, ready} } }
+	"PrivateLobbyReady",     -- client → server: bool — toggle ready state in private lobby
+	"PrivateLobbyStart",     -- client (host only) → server: start the match from private lobby
+	"PartyInviteReceived",   -- server → client: { fromName, code } — notification when invited
+}
+
+-- RemoteFunction names. Used for request/response (RPC-style) where the
+-- client needs a value back from the server: list sessions, create lobby,
+-- join by code, etc. Kept separate from RemoteEvents above for type safety.
+local REMOTE_FUNCTION_NAMES = {
+	"ListPublicSessions",    -- () → { { jobId, code?, mapId, state, players: int, max: int, kind: "public"|"private" } }
+	"CreatePrivateLobby",    -- () → { ok: bool, code?, accessCode?, error? }
+	"JoinSessionByCode",     -- (code: string) → { ok: bool, error? } (teleports the player on success)
+	"JoinSessionByJobId",    -- (jobId: string) → { ok: bool, error? }
+	"LeavePrivateLobby",     -- () → { ok: bool }
 }
 
 local isServer = RunService:IsServer()
@@ -83,10 +99,27 @@ local function getOrCreateRemote(folder: Folder, name: string): RemoteEvent
 	return folder:WaitForChild(name, 30) :: RemoteEvent
 end
 
+local function getOrCreateFunction(folder: Folder, name: string): RemoteFunction
+	local existing = folder:FindFirstChild(name)
+	if existing then
+		return existing :: RemoteFunction
+	end
+	if isServer then
+		local fn = Instance.new("RemoteFunction")
+		fn.Name = name
+		fn.Parent = folder
+		return fn
+	end
+	return folder:WaitForChild(name, 30) :: RemoteFunction
+end
+
 local folder = getOrCreateFolder()
-local Remotes: { [string]: RemoteEvent } = {}
+local Remotes: { [string]: any } = {}
 for _, name in REMOTE_NAMES do
 	Remotes[name] = getOrCreateRemote(folder, name)
+end
+for _, name in REMOTE_FUNCTION_NAMES do
+	Remotes[name] = getOrCreateFunction(folder, name)
 end
 
 return Remotes

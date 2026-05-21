@@ -562,45 +562,186 @@ selectMode(1)
 local firstCheck = modeCards[1]:FindFirstChild("Check") :: TextLabel?
 if firstCheck then firstCheck.Visible = true end
 
--- PLAY button — sized + positioned in applyResponsiveLayout() so it scales with
--- the mode card row. Mobile: 360x56, tablet: 440x64, desktop: matches card row
--- width × 72. Amber gradient ties into the armory/title theme.
-local playBtn = Instance.new("TextButton")
-playBtn.Size = UDim2.new(0, CARDS_TOTAL, 0, 72) -- refreshed below
-playBtn.AnchorPoint = Vector2.new(0.5, 0)
-playBtn.Position = UDim2.new(0.5, 0, 0, 220)
-playBtn.BackgroundColor3 = Color3.fromRGB(210, 160, 70)
-playBtn.BorderSizePixel = 0
-playBtn.AutoButtonColor = false
-playBtn.Font = UITheme.Font.display
-playBtn.TextSize = UITheme.FontSize.h2 -- 28; bumped to 30 on desktop
-playBtn.TextColor3 = Color3.fromRGB(28, 22, 14)
-playBtn.Text = "▶  PLAY"
-playBtn.Parent = centerCol
+-- ============================================================
+-- ACTION BUTTON GRID (2x2) — replaces the single PLAY button.
+-- Four entry points into multiplayer:
+--   [ QUICK PLAY     ] [ SERVER BROWSER ]
+--   [ CREATE PARTY   ] [ JOIN BY CODE   ]
+-- QUICK PLAY is the prominent "default action" — accentPrimary fill + amber
+-- gradient stroke retained from the previous PLAY button so the visual hierarchy
+-- still highlights "just press to play". The other three use bgElevated.
+-- Sizes are recomputed in applyResponsiveLayout():
+--   mobile (vw<900): 140x56 each, 8px gap
+--   tablet/desktop:  200x72 each, 12px gap
+-- ============================================================
+type ActionDef = {
+	id: string,
+	title: string,
+	subtitle: string,
+	primary: boolean,
+	onClick: () -> (),
+}
 
-local playCorner = Instance.new("UICorner")
-playCorner.CornerRadius = UDim.new(0, UITheme.Radius.md)
-playCorner.Parent = playBtn
+type ActionRefs = {
+	btn: TextButton,
+	titleLbl: TextLabel,
+	subLbl: TextLabel,
+	gridIndex: number,  -- 1..4 (1=TL, 2=TR, 3=BL, 4=BR)
+	stroke: UIStroke,
+	primary: boolean,
+}
 
-local playGradient = Instance.new("UIGradient")
-playGradient.Color = ColorSequence.new({
-	ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 200, 110)),
-	ColorSequenceKeypoint.new(1, Color3.fromRGB(195, 140, 50)),
-})
-playGradient.Rotation = 90
-playGradient.Parent = playBtn
+local actionRefs: { ActionRefs } = {}
 
-local playStroke = Instance.new("UIStroke")
-playStroke.Color = Color3.fromRGB(255, 220, 140)
-playStroke.Thickness = 2
-playStroke.Parent = playBtn
+-- Forward-declare hideMenu so QUICK PLAY's onClick can reference it. Real
+-- definition lives further down in this controller — Luau is single-pass so we
+-- need a slot here we can assign into.
+local hideMenuFwd: () -> ()? = nil
 
-playBtn.MouseEnter:Connect(function()
-	playStroke.Thickness = 4
-end)
-playBtn.MouseLeave:Connect(function()
-	playStroke.Thickness = 2
-end)
+local function makeActionButton(def: ActionDef, gridIndex: number): ActionRefs
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, 200, 0, 72)  -- refreshed in applyResponsiveLayout
+	btn.AnchorPoint = Vector2.new(0, 0)
+	btn.Position = UDim2.new(0, 0, 0, 0)  -- refreshed in applyResponsiveLayout
+	btn.BackgroundColor3 = def.primary and UITheme.Color.accentPrimary or UITheme.Color.bgElevated
+	btn.BorderSizePixel = 0
+	btn.AutoButtonColor = false
+	btn.Text = ""
+	btn.Parent = centerCol
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, UITheme.Radius.md)
+	corner.Parent = btn
+
+	local stroke = Instance.new("UIStroke")
+	if def.primary then
+		-- Amber stroke ties into the armory/title theme; bumps thickness on hover
+		stroke.Color = Color3.fromRGB(255, 220, 140)
+		stroke.Thickness = 2
+	else
+		stroke.Color = UITheme.Color.borderSubtle
+		stroke.Thickness = 1
+		stroke.Transparency = 0.2
+	end
+	stroke.Parent = btn
+
+	-- Top label — action name
+	local titleLbl = Instance.new("TextLabel")
+	titleLbl.Name = "Title"
+	titleLbl.Size = UDim2.new(1, -UITheme.Space.m * 2, 0, 22)
+	titleLbl.Position = UDim2.new(0, UITheme.Space.m, 0, UITheme.Space.s)
+	titleLbl.BackgroundTransparency = 1
+	titleLbl.Font = UITheme.Font.heading
+	titleLbl.TextSize = UITheme.FontSize.body  -- refreshed responsively
+	titleLbl.TextColor3 = def.primary and UITheme.Color.textInverse or UITheme.Color.textPrimary
+	titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+	titleLbl.TextYAlignment = Enum.TextYAlignment.Center
+	titleLbl.Text = def.title
+	titleLbl.Parent = btn
+
+	-- Bottom label — short description
+	local subLbl = Instance.new("TextLabel")
+	subLbl.Name = "Sub"
+	subLbl.Size = UDim2.new(1, -UITheme.Space.m * 2, 0, 14)
+	subLbl.Position = UDim2.new(0, UITheme.Space.m, 1, -UITheme.Space.s - 14)
+	subLbl.BackgroundTransparency = 1
+	subLbl.Font = UITheme.Font.body
+	subLbl.TextSize = UITheme.FontSize.micro
+	-- Primary action sub: tinted darker so it reads on the bright accent fill.
+	-- Secondary actions sub: tertiary text color (dimmed) per spec.
+	subLbl.TextColor3 = def.primary and Color3.fromRGB(28, 36, 48) or UITheme.Color.textTertiary
+	subLbl.TextXAlignment = Enum.TextXAlignment.Left
+	subLbl.TextYAlignment = Enum.TextYAlignment.Center
+	subLbl.TextTruncate = Enum.TextTruncate.AtEnd
+	subLbl.Text = def.subtitle
+	subLbl.Parent = btn
+
+	-- Hover feedback
+	btn.MouseEnter:Connect(function()
+		if def.primary then
+			stroke.Thickness = 4
+		else
+			btn.BackgroundColor3 = UITheme.Color.bgHover
+			stroke.Color = UITheme.Color.accentPrimary
+			stroke.Transparency = 0
+			stroke.Thickness = 2
+		end
+	end)
+	btn.MouseLeave:Connect(function()
+		if def.primary then
+			stroke.Thickness = 2
+		else
+			btn.BackgroundColor3 = UITheme.Color.bgElevated
+			stroke.Color = UITheme.Color.borderSubtle
+			stroke.Transparency = 0.2
+			stroke.Thickness = 1
+		end
+	end)
+
+	btn.MouseButton1Click:Connect(function()
+		def.onClick()
+	end)
+
+	return {
+		btn = btn,
+		titleLbl = titleLbl,
+		subLbl = subLbl,
+		gridIndex = gridIndex,
+		stroke = stroke,
+		primary = def.primary,
+	}
+end
+
+-- Define the four actions. QUICK PLAY preserves the existing flow (FireServer
+-- with the currently-selected mode id from the mode cards above). The other
+-- three fire ClientSignals — those modals/browsers are owned by other agents.
+local quickPlayDef: ActionDef = {
+	id = "quick_play",
+	title = "QUICK PLAY",
+	subtitle = "Cari server tercepat",
+	primary = true,
+	onClick = function()
+		-- Visual loading state on the QUICK PLAY button only — preserves prior
+		-- UX where the play CTA flips to "LOADING..." while RequestSpawn round-trips.
+		actionRefs[1].titleLbl.Text = "LOADING..."
+		actionRefs[1].subLbl.Text = ""
+		actionRefs[1].btn.AutoButtonColor = false
+		Remotes.RequestSpawn:FireServer(MODES[currentModeIndex].id)
+		if hideMenuFwd then hideMenuFwd() end
+	end,
+}
+local serverBrowserDef: ActionDef = {
+	id = "server_browser",
+	title = "SERVER BROWSER",
+	subtitle = "Pilih server manual",
+	primary = false,
+	onClick = function()
+		ClientSignals.Get("OpenServerBrowser"):Fire()
+	end,
+}
+local createPartyDef: ActionDef = {
+	id = "create_party",
+	title = "CREATE PARTY",
+	subtitle = "Bikin lobby private",
+	primary = false,
+	onClick = function()
+		ClientSignals.Get("OpenPrivateLobby"):Fire()
+	end,
+}
+local joinByCodeDef: ActionDef = {
+	id = "join_by_code",
+	title = "JOIN BY CODE",
+	subtitle = "Masukin code temen",
+	primary = false,
+	onClick = function()
+		ClientSignals.Get("OpenJoinByCode"):Fire()
+	end,
+}
+
+actionRefs[1] = makeActionButton(quickPlayDef,     1)
+actionRefs[2] = makeActionButton(serverBrowserDef, 2)
+actionRefs[3] = makeActionButton(createPartyDef,   3)
+actionRefs[4] = makeActionButton(joinByCodeDef,    4)
 
 -- ===== Side columns: secondary action buttons =====
 -- Uniform slim dark cards. The previous design used rainbow saturated fills
@@ -784,14 +925,18 @@ local function applyResponsiveLayout()
 	CARD_WIDTH, CARD_HEIGHT, CARD_GAP = cw, ch, gap
 	CARDS_TOTAL = #MODES * CARD_WIDTH + (#MODES - 1) * CARD_GAP
 
-	-- Center column size + offset — narrower on mobile so it sits above PLAY
-	-- without colliding with edge-pinned side buttons. Mobile: card_h(80) +
-	-- gap(32) + PLAY_h(48) = 160; tablet/desktop unchanged from prior layout.
-	local colHeight = ch + (mobile and 80 or 100) -- card height + space for PLAY
-	centerCol.Size = UDim2.new(0, CARDS_TOTAL + 24, 0, colHeight + (mobile and 32 or 60))
+	-- Center column size + offset — taller now to fit the 2x2 action grid below
+	-- the mode cards. Mobile: cards(80) + gap(20) + 2 rows of 56 + gap(8) = ~220.
+	-- Desktop: cards(160) + gap(32) + 2 rows of 72 + gap(12) = ~316.
+	local actionGridH = mobile and (56 * 2 + UITheme.Space.s) or (72 * 2 + UITheme.Space.m)
+	local actionTopGap = mobile and UITheme.Space.xl or UITheme.Space.x3l
+	local cardRowW = CARDS_TOTAL
+	local actionRowW = (mobile and 140 or 200) * 2 + (mobile and UITheme.Space.s or UITheme.Space.m)
+	local colHeight = ch + actionTopGap + actionGridH
+	centerCol.Size = UDim2.new(0, math.max(cardRowW, actionRowW) + 24, 0, colHeight + (mobile and 32 or 50))
 	-- Shift center column down on mobile so it clears the title block above
-	-- (title bottom ~46) and the rank chip (~y=84 top-left). Centered-y with a
-	-- small bias keeps PLAY visible above the player/version labels at bottom.
+	-- (title bottom ~46) and the rank chip (~y=84 top-left). Slight bias keeps
+	-- the action grid visible above the player/version labels at the bottom.
 	centerCol.Position = UDim2.new(0.5, 0, 0.5, mobile and 20 or -10)
 
 	-- Re-lay each mode card + its labels. Cards start closer to section label on
@@ -829,21 +974,39 @@ local function applyResponsiveLayout()
 		end
 	end
 
-	-- PLAY button — mobile 280x48, tablet 380x60, desktop matches card row x 72.
-	-- Mobile shrunk from 360x56 → 280x48 after audit: at 666x374, the previous
-	-- size pushed PLAY into the side-button vertical column. 280 still gives a
-	-- generous tap target while leaving comfortable padding from the cards above.
-	local playW, playH, playTextSize
+	-- Action button 2x2 grid — mobile 140x56 cards w/ 8px gap, tablet/desktop
+	-- 200x72 w/ 12px gap. Title font scales 13(mobile)/15(desktop), sub font
+	-- 10(mobile)/11(desktop). Whole grid sits centered horizontally below the
+	-- mode cards with the same vertical offset the single PLAY button used.
+	local actW, actH, actGap, titleSize, subSize
 	if mobile then
-		playW, playH, playTextSize = math.min(280, CARDS_TOTAL), 48, UITheme.FontSize.body
-	elseif tablet then
-		playW, playH, playTextSize = math.min(380, CARDS_TOTAL), 60, UITheme.FontSize.bodyLg
+		actW, actH, actGap = 140, 56, UITheme.Space.s  -- 8
+		titleSize, subSize = UITheme.FontSize.caption, 10  -- 13 / 10
 	else
-		playW, playH, playTextSize = CARDS_TOTAL, 72, 30
+		actW, actH, actGap = 200, 72, UITheme.Space.m  -- 12
+		titleSize, subSize = UITheme.FontSize.body, UITheme.FontSize.micro  -- 15 / 11
 	end
-	playBtn.Size = UDim2.new(0, playW, 0, playH)
-	playBtn.Position = UDim2.new(0.5, 0, 0, CARD_HEIGHT + (mobile and UITheme.Space.x3l or 60))
-	playBtn.TextSize = playTextSize
+	local gridW = actW * 2 + actGap
+	local gridTopY = CARD_HEIGHT + (mobile and UITheme.Space.xl or UITheme.Space.x3l)  -- 20 mobile / 32 desktop
+	for _, ref in actionRefs do
+		ref.btn.Size = UDim2.new(0, actW, 0, actH)
+		-- Map 1-indexed gridIndex → (row, col): 1=TL, 2=TR, 3=BL, 4=BR
+		local row = (ref.gridIndex <= 2) and 0 or 1
+		local col = ((ref.gridIndex - 1) % 2)
+		local x = -gridW / 2 + col * (actW + actGap)
+		local y = gridTopY + row * (actH + actGap)
+		ref.btn.AnchorPoint = Vector2.new(0, 0)
+		ref.btn.Position = UDim2.new(0.5, x, 0, y)
+		ref.titleLbl.TextSize = titleSize
+		ref.subLbl.TextSize = subSize
+		-- Tighten label horizontals on mobile so longer strings don't truncate
+		-- ("SERVER BROWSER", "MASUKIN CODE TEMEN")
+		local sidePad = mobile and UITheme.Space.s or UITheme.Space.m
+		ref.titleLbl.Size = UDim2.new(1, -sidePad * 2, 0, mobile and 18 or 22)
+		ref.titleLbl.Position = UDim2.new(0, sidePad, 0, mobile and 6 or UITheme.Space.s)
+		ref.subLbl.Size = UDim2.new(1, -sidePad * 2, 0, mobile and 12 or 14)
+		ref.subLbl.Position = UDim2.new(0, sidePad, 1, mobile and -16 or -(UITheme.Space.s + 14))
+	end
 
 	-- Side buttons — width, height, icon size, label visibility, position.
 	-- Height is dynamic (50 mobile / 56 desktop) so the 3-button column on
@@ -978,9 +1141,12 @@ end
 
 -- Restore menu state (called when player exits training back to menu)
 local function showMenu()
-	-- Reset PLAY button
-	playBtn.Text = "▶  PLAY"
-	playBtn.AutoButtonColor = false
+	-- Reset QUICK PLAY button (was flipped to "LOADING..." when player clicked it)
+	if actionRefs[1] then
+		actionRefs[1].titleLbl.Text = "QUICK PLAY"
+		actionRefs[1].subLbl.Text = "Cari server tercepat"
+		actionRefs[1].btn.AutoButtonColor = false
+	end
 
 	-- Restore backdrop + title transparencies
 	backdrop.BackgroundTransparency = 0
@@ -1004,12 +1170,10 @@ local function showMenu()
 	setupMenuCamera()
 end
 
-playBtn.MouseButton1Click:Connect(function()
-	playBtn.Text = "LOADING..."
-	playBtn.AutoButtonColor = false
-	Remotes.RequestSpawn:FireServer(MODES[currentModeIndex].id)
-	hideMenu()
-end)
+-- Wire QUICK PLAY's hideMenu call now that hideMenu() is defined above. The
+-- action grid was built before hideMenu existed (Luau is single-pass), so the
+-- onClick captured a forward-declared slot we fill in here.
+hideMenuFwd = hideMenu
 
 -- (mode selection now happens via the card click handlers above; no dropdown
 -- cycle button needed since all modes are visible at once.)
