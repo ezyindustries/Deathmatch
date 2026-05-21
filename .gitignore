@@ -31,6 +31,9 @@ coverage/
 Thumbs.db
 ehthumbs.db
 
+# Claude Code local session cache
+.claude/
+
 # Place backup binary — KEEP THIS in repo for now since it's the source of
 # truth for geometry/non-script Instances. Re-evaluate if file gets large
 # (>10MB) — then consider Git LFS or external backup.
