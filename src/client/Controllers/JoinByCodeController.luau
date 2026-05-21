@@ -473,7 +473,7 @@ UserInputService.InputBegan:Connect(function(input: InputObject, processed: bool
 end)
 
 -- Signal-driven open from MainMenuController (Agent D wires this).
-ClientSignals.Get("OpenJoinByCode"):Connect(function()
+ClientSignals.Get("OpenJoinByCode").Event:Connect(function()
 	setOpen(true)
 end)
 

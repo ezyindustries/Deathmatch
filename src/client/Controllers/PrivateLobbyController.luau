@@ -804,7 +804,7 @@ Remotes.PrivateLobbyUpdate.OnClientEvent:Connect(function(payload: any)
 end)
 
 -- Signal-driven open from MainMenuController (Agent D wires this).
-ClientSignals.Get("OpenPrivateLobby"):Connect(function()
+ClientSignals.Get("OpenPrivateLobby").Event:Connect(function()
 	setOpen(true)
 end)
 
