@@ -530,10 +530,37 @@ resultsSummary.Text = ""
 resultsSummary.Parent = resultsBanner
 
 Remotes.MatchResults.OnClientEvent:Connect(function(results: any)
-	if results.mvp and results.mvp.kills > 0 then
-		resultsMvp.Text = string.format("🏆 MVP: %s  (%d kills)", results.mvp.name, results.mvp.kills)
+	-- TDM: show winning team big + team scores. Fallback to FFA-style MVP
+	-- only message when winningTeam absent (e.g. casual mode or legacy).
+	if results.winningTeam then
+		local teamName = if results.winningTeam == "A" then "TIM KAWAN" else "TIM LAWAN"
+		local teamColor = if results.winningTeam == "A"
+			then Color3.fromRGB(96, 165, 250)
+			else Color3.fromRGB(248, 113, 113)
+		resultsTitle.Text = teamName .. " MENANG!"
+		resultsTitle.TextColor3 = teamColor
+		local wins = results.teamWins or { A = 0, B = 0 }
+		local mvpStr = ""
+		if results.mvp and results.mvp.kills > 0 then
+			mvpStr = string.format("  •  🏆 MVP: %s (%d)", results.mvp.name, results.mvp.kills)
+		end
+		resultsMvp.Text = string.format("Tim Kawan %d  —  %d Tim Lawan%s",
+			wins.A or 0, wins.B or 0, mvpStr)
+	elseif results.teamWins then
+		resultsTitle.Text = "DRAW"
+		resultsTitle.TextColor3 = Color3.fromRGB(255, 220, 80)
+		local wins = results.teamWins
+		resultsMvp.Text = string.format("Tim Kawan %d  —  %d Tim Lawan (seri)",
+			wins.A or 0, wins.B or 0)
 	else
-		resultsMvp.Text = "No MVP — no kills this match"
+		-- Legacy FFA fallback
+		resultsTitle.Text = "MATCH RESULTS"
+		resultsTitle.TextColor3 = Color3.fromRGB(255, 220, 80)
+		if results.mvp and results.mvp.kills > 0 then
+			resultsMvp.Text = string.format("🏆 MVP: %s  (%d kills)", results.mvp.name, results.mvp.kills)
+		else
+			resultsMvp.Text = "No MVP — no kills this match"
+		end
 	end
 	resultsSummary.Text = string.format("%d players competed", #results.scoreboard)
 	resultsBanner.Visible = true

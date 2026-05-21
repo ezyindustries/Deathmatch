@@ -229,19 +229,50 @@ local function awardMatchEndRewards()
 		end
 	end
 
+	-- TDM winner: team with more kills wins. Each player on winning team
+	-- gets the win bonus. MVP (top individual killer) gets extra coins.
+	local teamWins: { [string]: number } = { A = 0, B = 0 }
+	local okTeam, team = pcall(require, script.Parent.DeathmatchTeamService)
+	if okTeam and team and team.GetCounts then
+		-- Use the live team stats broadcast (mirror of OnKill aggregator).
+		local counts = team.GetCounts()
+		if counts and counts.stats then
+			teamWins.A = counts.stats.A and counts.stats.A.kills or 0
+			teamWins.B = counts.stats.B and counts.stats.B.kills or 0
+		end
+	end
+
+	local winningTeam: string? = nil
+	if teamWins.A ~= teamWins.B then
+		winningTeam = if teamWins.A > teamWins.B then "A" else "B"
+	end
+
+	if winningTeam and okTeam and team then
+		-- Award every player on winning team
+		for _, entry in scoreboard do
+			local player = Players:GetPlayerByUserId(entry.userId)
+			if player and team.GetTeam(player.Character) == winningTeam then
+				PlayerDataService.IncrementStat(player, "totalWins", 1)
+				awardXp(player, XP_PER_WIN)
+				PlayerDataService.AddCurrency(player, "coins", GameConfig.CoinPerWin)
+				MissionService.OnMatchWon(player)
+			end
+		end
+	end
+
+	-- MVP bonus (top killer, any team)
 	if mvp and mvp.kills > 0 then
-		local winner = Players:GetPlayerByUserId(mvp.userId)
-		if winner then
-			PlayerDataService.IncrementStat(winner, "totalWins", 1)
-			awardXp(winner, XP_PER_WIN)
-			PlayerDataService.AddCurrency(winner, "coins", GameConfig.CoinPerWin + GameConfig.CoinPerMVP)
-			MissionService.OnMatchWon(winner)
+		local mvpPlayer = Players:GetPlayerByUserId(mvp.userId)
+		if mvpPlayer then
+			PlayerDataService.AddCurrency(mvpPlayer, "coins", GameConfig.CoinPerMVP)
 		end
 	end
 
 	Remotes.MatchResults:FireAllClients({
 		scoreboard = scoreboard,
 		mvp = mvp,
+		teamWins = teamWins,
+		winningTeam = winningTeam,
 	})
 end
 

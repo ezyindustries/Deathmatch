@@ -74,7 +74,16 @@ local function getCounts()
 		local t = teamOf[b]
 		if t then bots[t] += 1 end
 	end
-	return { players = players, bots = bots }
+	-- stats: live aggregate of OnKill — used by ScoringService at match end
+	-- to determine winning team.
+	return {
+		players = players,
+		bots = bots,
+		stats = {
+			A = { kills = teamStats.A.kills, deaths = teamStats.A.deaths },
+			B = { kills = teamStats.B.kills, deaths = teamStats.B.deaths },
+		},
+	}
 end
 
 -- Apply the "Team" attribute to a character + paint a colored armband on the

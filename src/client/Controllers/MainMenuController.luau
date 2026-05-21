@@ -399,19 +399,18 @@ local modeCards: { TextButton } = {}
 local modeStrokes: { UIStroke } = {}
 
 -- Mode card geometry is responsive (recomputed in applyResponsiveLayout).
--- Mobile (vw<900): 140x80 — fits two cards side-by-side on iPhone 7 landscape
--- (666x374) with generous breathing room above (title) + below (PLAY).
--- Shrunk from 180x100 after mobile audit: cards no longer dominate ~70% of the
--- vertical real estate, leaving room for PLAY without overlapping the side
--- button columns. Tablet (vw<1300): 200x110. Desktop: 260x160.
+-- Shrunk after the 2x2 action grid was added below the cards — earlier card
+-- heights (80/110/160) ate too much vertical real estate, pushing the grid
+-- against the side button columns and visually colliding with the "SELECTED"
+-- tag. Current values give the action grid 100px+ breathing room.
 local function getCardDims(): (number, number, number)
 	local w, h, gap
 	if isMobileVP() then
-		w, h, gap = 140, 80, UITheme.Space.s -- 8
+		w, h, gap = 140, 64, UITheme.Space.s -- 8
 	elseif isTabletVP() then
-		w, h, gap = 200, 110, UITheme.Space.m -- 12
+		w, h, gap = 200, 86, UITheme.Space.m -- 12
 	else
-		w, h, gap = 260, 160, UITheme.Space.xl -- 20
+		w, h, gap = 260, 110, UITheme.Space.xl -- 20
 	end
 	return w, h, gap
 end
@@ -929,7 +928,8 @@ local function applyResponsiveLayout()
 	-- the mode cards. Mobile: cards(80) + gap(20) + 2 rows of 56 + gap(8) = ~220.
 	-- Desktop: cards(160) + gap(32) + 2 rows of 72 + gap(12) = ~316.
 	local actionGridH = mobile and (56 * 2 + UITheme.Space.s) or (72 * 2 + UITheme.Space.m)
-	local actionTopGap = mobile and UITheme.Space.xl or UITheme.Space.x3l
+	-- Match the larger gap from gridTopY below so centerCol sizes correctly.
+	local actionTopGap = mobile and UITheme.Space.x3l or UITheme.Space.x4l
 	local cardRowW = CARDS_TOTAL
 	local actionRowW = (mobile and 140 or 200) * 2 + (mobile and UITheme.Space.s or UITheme.Space.m)
 	local colHeight = ch + actionTopGap + actionGridH
@@ -960,14 +960,16 @@ local function applyResponsiveLayout()
 			refs.name.Position = UDim2.new(0, UITheme.Space.m, 0, mobile and 22 or 28)
 			refs.name.TextSize = nameSize
 
-			-- Description: hidden on mobile (no room), small wrap on tablet+
-			if mobile then
+			-- Description: hidden on mobile + tablet (card too short), small
+			-- wrap on desktop only. Card heights now (64/86/110) — only
+			-- desktop has the 40+ vertical room a 2-line description needs.
+			if mobile or tablet then
 				refs.desc.Visible = false
 			else
 				refs.desc.Visible = true
-				refs.desc.Size = UDim2.new(1, -UITheme.Space.xxl, 0, CARD_HEIGHT - 70)
-				refs.desc.Position = UDim2.new(0, UITheme.Space.m, 0, 56)
-				refs.desc.TextSize = tablet and 11 or 12
+				refs.desc.Size = UDim2.new(1, -UITheme.Space.xxl, 0, CARD_HEIGHT - 64)
+				refs.desc.Position = UDim2.new(0, UITheme.Space.m, 0, 54)
+				refs.desc.TextSize = 11
 			end
 
 			refs.check.TextSize = mobile and 9 or 10
@@ -987,7 +989,10 @@ local function applyResponsiveLayout()
 		titleSize, subSize = UITheme.FontSize.body, UITheme.FontSize.micro  -- 15 / 11
 	end
 	local gridW = actW * 2 + actGap
-	local gridTopY = CARD_HEIGHT + (mobile and UITheme.Space.xl or UITheme.Space.x3l)  -- 20 mobile / 32 desktop
+	-- Generous gap between mode cards and action grid so "● SELECTED" tag on
+	-- the card doesn't visually collide with the QUICK PLAY button above.
+	-- Was: Space.xl(20) mobile / Space.x3l(32) desktop. Now Space.x3l(32) / x4l(48).
+	local gridTopY = CARD_HEIGHT + (mobile and UITheme.Space.x3l or UITheme.Space.x4l)
 	for _, ref in actionRefs do
 		ref.btn.Size = UDim2.new(0, actW, 0, actH)
 		-- Map 1-indexed gridIndex → (row, col): 1=TL, 2=TR, 3=BL, 4=BR
