@@ -358,6 +358,7 @@ MatchStateService.StateChanged:Connect(function(newState: MatchState.State)
 				Remotes.OpenTeamSelect:FireClient(p)
 			end
 		end
+	end
 end)
 
 return DeathmatchTeamService
