@@ -144,6 +144,17 @@ local function tierColorFor(weaponId: string?): Color3
 	return map[w.tier] or UITheme.Color.textPrimary
 end
 
+-- Resolve local player's current team for color-coding kill feed entries.
+-- DeathmatchTeamService sets Team attribute ("A" or "B") on character;
+-- returns nil when not in a team match (e.g. casual / training / pre-spawn),
+-- in which case team-color logic falls back to enemy color.
+local function getLocalTeam(): string?
+	local char = player.Character
+	if not char then return nil end
+	local t = char:GetAttribute("Team")
+	return type(t) == "string" and t or nil
+end
+
 local function buildEntry(info: any)
 	local isLocalKill = info.killer == player.Name
 	local tierColor = tierColorFor(info.weaponId)
@@ -153,6 +164,19 @@ local function buildEntry(info: any)
 	-- in the middle drops to micro 11 so it stays subordinate.
 	local nameFontSize = mobile and UITheme.FontSize.caption or UITheme.FontSize.body
 	local weaponFontSize = mobile and UITheme.FontSize.micro or UITheme.FontSize.caption
+
+	-- Team-aware coloring (10v10 TDM): own-team participants get info (cyan),
+	-- enemy-team participants get danger (red). Falls back to enemy color when
+	-- team metadata is missing (legacy payloads, non-team gamemodes, etc.).
+	local localTeam = getLocalTeam()
+	local function teamColorFor(participantTeam: any): Color3
+		if localTeam and type(participantTeam) == "string" and participantTeam == localTeam then
+			return UITheme.Color.info
+		end
+		return UITheme.Color.danger
+	end
+	local killerTeamColor = teamColorFor(info.killerTeam)
+	local victimTeamColor = teamColorFor(info.victimTeam)
 
 	-- Outer wrapper used for slide-in animation (translate via Position)
 	local entry = Instance.new("Frame")
@@ -198,14 +222,15 @@ local function buildEntry(info: any)
 	hList.Padding = UDim.new(0, UITheme.Space.s)
 	hList.Parent = entry
 
-	-- Killer name — green if local, lighter green otherwise
+	-- Killer name — own-team cyan / enemy red (team-aware). Local-killer override:
+	-- accentPrimary (kept) so "your" kill still pops above the team coloring.
 	local killerLbl = Instance.new("TextLabel")
 	killerLbl.Size = UDim2.new(0, 0, 1, 0)
 	killerLbl.AutomaticSize = Enum.AutomaticSize.X
 	killerLbl.BackgroundTransparency = 1
 	killerLbl.Font = UITheme.Font.heading
 	killerLbl.TextSize = nameFontSize
-	killerLbl.TextColor3 = isLocalKill and UITheme.Color.accentPrimary or UITheme.Color.success
+	killerLbl.TextColor3 = isLocalKill and UITheme.Color.accentPrimary or killerTeamColor
 	killerLbl.Text = info.killer or "?"
 	killerLbl.LayoutOrder = 1
 	killerLbl.Parent = entry
@@ -244,7 +269,8 @@ local function buildEntry(info: any)
 		hsLbl.Parent = hsBadge
 	end
 
-	-- Victim name — red. Bold if local player is the victim (so player notices).
+	-- Victim name — own-team cyan / enemy red (team-aware). Local-death override:
+	-- accentSecondary (kept) so the player notices their own death.
 	local isLocalDeath = info.victim == player.Name
 	local victimLbl = Instance.new("TextLabel")
 	victimLbl.Size = UDim2.new(0, 0, 1, 0)
@@ -252,7 +278,7 @@ local function buildEntry(info: any)
 	victimLbl.BackgroundTransparency = 1
 	victimLbl.Font = UITheme.Font.heading
 	victimLbl.TextSize = nameFontSize
-	victimLbl.TextColor3 = isLocalDeath and UITheme.Color.accentSecondary or UITheme.Color.danger
+	victimLbl.TextColor3 = isLocalDeath and UITheme.Color.accentSecondary or victimTeamColor
 	victimLbl.Text = info.victim or "?"
 	victimLbl.LayoutOrder = 4
 	victimLbl.Parent = entry

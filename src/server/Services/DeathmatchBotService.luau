@@ -11,15 +11,22 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local MatchState = require(Shared.Modules.MatchState)
 local BotModel = require(Shared.Modules.BotModel)
 local Remotes = require(Shared.Modules.Remotes)
+local DMTeams = require(Shared.Modules.DMTeams)
 local MatchStateService = require(script.Parent.MatchStateService)
 local ScoringService = require(script.Parent.ScoringService)
 local BotAnimator = require(script.Parent.Parent.Modules.BotAnimator)
 
 local DeathmatchBotService = {}
 
--- Total combatants (players + bots) target. User asked for 20 bots in a
--- chaotic DM match — keep TARGET = 21 so botsNeeded = 21 - playerCount.
-local TARGET_PLAYER_COUNT = 21
+-- Lazy-require DeathmatchTeamService so we don't depend on its init order.
+-- Both services are auto-loaded, but ordering isn't deterministic.
+local function teamSvc()
+	return require(script.Parent.DeathmatchTeamService)
+end
+
+-- Total combatants (players + bots) target. 10v10 TDM → 20 total.
+-- Solo player = 1 + 19 bots = 20 combatants split 10 vs 10.
+local TARGET_PLAYER_COUNT = DMTeams.TARGET
 local BOT_HEALTH = 100
 local BOT_DAMAGE = 8              -- damage per shot
 local BOT_RANGE = 90              -- engagement distance
@@ -82,6 +89,46 @@ local function newAIState(): BotAIState
 		jumpedOnEvasion = false,
 		nextScanAt = 0,
 	}
+end
+
+-- Per-team palettes for the BotModel.Build colors override. Blue for team A
+-- ("Kawan" / friendly), red for team B ("Lawan" / enemy). Legs/arms stay
+-- desaturated so the team tint reads from the torso/head silhouette without
+-- making every limb scream the same hue.
+local TEAM_BOT_COLORS: { [string]: BotModel.BotColors } = {
+	A = {
+		torso    = Color3.fromRGB(60, 110, 200),
+		head     = Color3.fromRGB(200, 170, 140),
+		leftArm  = Color3.fromRGB(60, 110, 200),
+		rightArm = Color3.fromRGB(60, 110, 200),
+		leftLeg  = Color3.fromRGB(30, 35, 50),
+		rightLeg = Color3.fromRGB(30, 35, 50),
+	},
+	B = {
+		torso    = Color3.fromRGB(180, 55, 55),
+		head     = Color3.fromRGB(200, 170, 140),
+		leftArm  = Color3.fromRGB(180, 55, 55),
+		rightArm = Color3.fromRGB(180, 55, 55),
+		leftLeg  = Color3.fromRGB(40, 35, 35),
+		rightLeg = Color3.fromRGB(40, 35, 35),
+	},
+}
+
+-- Track each bot's team across rebuilds so it stays on the same side across
+-- respawns. We key by Model — when a bot is destroyed + rebuilt we copy the
+-- prior team onto the new Model via this map.
+local botTeam: { [Model]: DMTeams.TeamId } = {}
+
+-- Pick which team the next-spawning bot should join. We count current bot
+-- assignments (not the overall combatant count) so bot fill stays balanced
+-- regardless of how players have lined up.
+local function pickBotTeam(): DMTeams.TeamId
+	local a, b = 0, 0
+	for _, t in botTeam do
+		if t == "A" then a += 1 else b += 1 end
+	end
+	if a <= b then return "A" end
+	return "B"
 end
 
 local function clearTargetLock(state: BotAIState)
@@ -292,7 +339,8 @@ local function _buildBotModel_legacy(name: string): Model
 	return model
 end
 
--- Find nearest target (player OR another bot) within engagement range.
+-- Find nearest ENEMY target (player OR another bot) within engagement range.
+-- Same-team combatants are skipped so 10v10 TDM AI only shoots enemies.
 local function findNearestTarget(self: Model, botPos: Vector3): (Model?, BasePart?, Humanoid?, string?, any)
 	local nearestChar: Model? = nil
 	local nearestHRP: BasePart? = nil
@@ -300,6 +348,10 @@ local function findNearestTarget(self: Model, botPos: Vector3): (Model?, BasePar
 	local nearestType: string? = nil
 	local nearestId: any = nil
 	local nearestDist = math.huge
+	-- Cache our own team for the friendly-fire filter. Untagged bots (e.g.
+	-- mid-rebuild) fall through to "engage anyone in range" — safer than
+	-- standing motionless. Re-fetched per call so team swaps mid-life apply.
+	local myTeam = teamSvc().GetTeam(self)
 	for _, p in Players:GetPlayers() do
 		local char = p.Character
 		if not char then continue end
@@ -307,6 +359,11 @@ local function findNearestTarget(self: Model, botPos: Vector3): (Model?, BasePar
 		if not hum or hum.Health <= 0 then continue end
 		local hrp = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 		if not hrp then continue end
+		-- Skip same-team players when both sides have a team tag.
+		if myTeam then
+			local theirTeam = teamSvc().GetTeam(p)
+			if theirTeam and theirTeam == myTeam then continue end
+		end
 		local dist = (hrp.Position - botPos).Magnitude
 		if dist < nearestDist and dist < BOT_RANGE then
 			nearestDist = dist
@@ -320,6 +377,11 @@ local function findNearestTarget(self: Model, botPos: Vector3): (Model?, BasePar
 		if not hum or hum.Health <= 0 then continue end
 		local hrp = otherBot:FindFirstChild("HumanoidRootPart") :: BasePart?
 		if not hrp then continue end
+		-- Skip same-team bots.
+		if myTeam then
+			local theirTeam = teamSvc().GetTeam(otherBot)
+			if theirTeam and theirTeam == myTeam then continue end
+		end
 		local dist = (hrp.Position - botPos).Magnitude
 		if dist < nearestDist and dist < BOT_RANGE then
 			nearestDist = dist
@@ -553,6 +615,10 @@ local rebuildBot: (oldBot: Model) -> ()
 -- listener all re-attached cleanly.
 rebuildBot = function(oldBot: Model)
 	local name = oldBot.Name
+	-- Preserve team across rebuild so a bot stays loyal to its side after
+	-- death. Grab BEFORE we Destroy() the old model (which clears the
+	-- attribute) and before we drop botTeam[oldBot].
+	local preservedTeam: DMTeams.TeamId? = botTeam[oldBot] or teamSvc().GetTeam(oldBot)
 	local oldIdx: number? = nil
 	for i, b in bots do
 		if b == oldBot then
@@ -565,13 +631,17 @@ rebuildBot = function(oldBot: Model)
 	botState[oldBot] = nil
 	botMuzzle[oldBot] = nil
 	lastBehaviorAt[oldBot] = nil
+	teamSvc().UnassignBot(oldBot)
+	botTeam[oldBot] = nil
 	oldBot:Destroy()
 
 	local spawns = getArenaSpawnPoints()
 	if #spawns == 0 then return end
 	local sp = spawns[math.random(#spawns)]
 
-	local okBuild, botOrErr = pcall(BotModel.Build, name, BOT_HEALTH)
+	local rebuildTeam: DMTeams.TeamId = preservedTeam or pickBotTeam()
+	local colors = TEAM_BOT_COLORS[rebuildTeam]
+	local okBuild, botOrErr = pcall(BotModel.Build, name, BOT_HEALTH, colors)
 	if not okBuild then
 		warn(string.format("[DeathmatchBot] rebuildBot: Build failed for %s: %s", name, tostring(botOrErr)))
 		return
@@ -590,6 +660,10 @@ rebuildBot = function(oldBot: Model)
 	end)
 	bots[oldIdx] = bot
 	botState[bot] = newAIState()
+	-- Re-register with the team service using the preserved team. AssignBot
+	-- handles the SetAttribute + tint + broadcast.
+	botTeam[bot] = rebuildTeam
+	teamSvc().AssignBot(bot, rebuildTeam)
 	local okEquip, muzzleOrErr = pcall(BotModel.EquipRifle, bot)
 	if okEquip then
 		local muzzle = muzzleOrErr :: Attachment?
@@ -661,12 +735,14 @@ local function clearBots()
 	for _, bot in bots do
 		BotAnimator.Unregister(bot)
 		ScoringService.UnregisterBot(bot.Name)
+		teamSvc().UnassignBot(bot)
 		bot:Destroy()
 	end
 	table.clear(bots)
 	table.clear(botState)
 	table.clear(lastBehaviorAt)
 	table.clear(botMuzzle)
+	table.clear(botTeam)
 end
 
 -- Position a freshly built bot at the given target CFrame. This is the
@@ -693,16 +769,53 @@ local function placeBotAt(bot: Model, targetCF: CFrame)
 	BotModel.UnanchorRig(bot)
 end
 
--- Private servers (created via TeleportService:ReserveServer for parties)
--- skip bot fill so the host's friends fill the slots instead. Detected via
--- game.PrivateServerId (empty string on public matchmaking servers).
+-- Private servers (created via TeleportService:ReserveServer for parties) used
+-- to unconditionally skip bot fill. Now the host can opt in/out via the
+-- "With Bots" toggle in the Create-Lobby UI; the choice is forwarded as
+-- TeleportData and stamped onto Workspace attributes by PrivateLobbyService.
+-- Reading the attribute (not a captured boot-time flag) means a slow
+-- TeleportData arrival doesn't fall through to "default off" — we re-read
+-- every fill pass.
 local IS_PRIVATE_SERVER = game.PrivateServerId ~= ""
 if IS_PRIVATE_SERVER then
-	print("[DeathmatchBot] Private server detected — bot fill disabled (PrivateServerId=" .. game.PrivateServerId .. ")")
+	print("[DeathmatchBot] Private server detected (PrivateServerId=" .. game.PrivateServerId .. ") — will honor Workspace WithBots/MaxPlayers attributes")
+end
+
+-- Read host-configured lobby settings stamped on Workspace by
+-- PrivateLobbyService.applyTeleportDataToWorkspace. Public servers (no
+-- PrivateServerId) call sites bypass this helper and use TARGET_PLAYER_COUNT.
+local function resolvePrivateLobbyConfig(): (boolean, number)
+	local withBotsAttr = Workspace:GetAttribute("WithBots")
+	local maxPlayersAttr = Workspace:GetAttribute("MaxPlayers")
+	local withBots = if typeof(withBotsAttr) == "boolean" then withBotsAttr else true
+	local maxPlayers = TARGET_PLAYER_COUNT
+	if typeof(maxPlayersAttr) == "number" then
+		local mp = math.floor(maxPlayersAttr)
+		if mp < 2 then mp = 2 end
+		if mp > 20 then mp = 20 end
+		maxPlayers = mp
+	end
+	return withBots, maxPlayers
 end
 
 local function spawnBotsToFill()
-	if IS_PRIVATE_SERVER then return end
+	-- In private servers: honor the host's WithBots/MaxPlayers settings.
+	-- If WithBots=false → skip entirely (same legacy "private = no bots"
+	-- behavior). Otherwise treat private just like a public match but with
+	-- the host's chosen MaxPlayers as the fill target.
+	local effectiveTarget = TARGET_PLAYER_COUNT
+	if IS_PRIVATE_SERVER then
+		local withBots, maxPlayers = resolvePrivateLobbyConfig()
+		if not withBots then
+			print("[DeathmatchBot] Private server with WithBots=false — skipping bot fill")
+			return
+		end
+		effectiveTarget = maxPlayers
+		print(string.format(
+			"[DeathmatchBot] Private server with WithBots=true, MaxPlayers=%d — filling normally",
+			maxPlayers
+		))
+	end
 	-- Retry up to 10 times waiting for arena spawns (max ~5 seconds total)
 	local spawns = getArenaSpawnPoints()
 	local retries = 0
@@ -730,8 +843,8 @@ local function spawnBotsToFill()
 	print(string.format("[DEBUG-BOT] First spawn position: %s", tostring(spawns[1].Position)))
 	clearBots()
 	local playerCount = #Players:GetPlayers()
-	local botsNeeded = math.max(0, TARGET_PLAYER_COUNT - playerCount)
-	print(string.format("[DeathmatchBot] Spawning %d bots (players: %d, target: %d)", botsNeeded, playerCount, TARGET_PLAYER_COUNT))
+	local botsNeeded = math.max(0, effectiveTarget - playerCount)
+	print(string.format("[DeathmatchBot] Spawning %d bots (players: %d, target: %d)", botsNeeded, playerCount, effectiveTarget))
 	-- Diagnostic mode: if a player is alive in arena, prefer the spawn points
 	-- closest to them for the first 2 bots so they're visible immediately.
 	-- Remaining bots fall back to random spawns to keep the arena populated.
@@ -750,12 +863,19 @@ local function spawnBotsToFill()
 	for i = 1, botsNeeded do
 		nameIndex = (nameIndex % #botNames) + 1
 		local name = botNames[nameIndex] .. "_" .. tostring(i)
-		local okBuild, botOrErr = pcall(BotModel.Build, name, BOT_HEALTH)
+		-- Decide team BEFORE building so we can apply the team palette to the
+		-- rig. pickBotTeam consults the running botTeam map; we record the
+		-- assignment IMMEDIATELY after building the model (below) so the next
+		-- loop iteration sees an up-to-date count.
+		local assignedTeam: DMTeams.TeamId = pickBotTeam()
+		local colors = TEAM_BOT_COLORS[assignedTeam]
+		local okBuild, botOrErr = pcall(BotModel.Build, name, BOT_HEALTH, colors)
 		if not okBuild then
 			warn(string.format("[DeathmatchBot] BotModel.Build failed for %s: %s", name, tostring(botOrErr)))
 			continue
 		end
 		local bot: Model = botOrErr :: Model
+		botTeam[bot] = assignedTeam
 		-- DIAGNOSTIC SPAWN: when a player is in the arena, place the first 6
 		-- bots in a ring directly around them (radius ~15 studs). This bypasses
 		-- the map's spawn points entirely so it works even on maps with gaps,
@@ -781,6 +901,11 @@ local function spawnBotsToFill()
 		placeBotAt(bot, targetCF)
 		table.insert(bots, bot)
 		botState[bot] = newAIState()
+		-- Register with team service NOW (after parent — AssignBot sets a
+		-- Team attribute + armband, which both need the model in Workspace
+		-- to replicate visibly). The botTeam map was set right after Build()
+		-- so pickBotTeam already counts this bot for the next iteration.
+		teamSvc().AssignBot(bot, assignedTeam)
 		-- Equip rifle + cache muzzle for tracer origin. EquipRifle creates
 		-- new welded parts; wrap in pcall so a single broken weld can't
 		-- abort the rest of the spawn loop.

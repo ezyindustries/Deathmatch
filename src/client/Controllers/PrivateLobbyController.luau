@@ -197,6 +197,178 @@ createStatusLbl.TextXAlignment = Enum.TextXAlignment.Center
 createStatusLbl.Text = ""
 createStatusLbl.Parent = stageA
 
+-- ============================================================
+-- Lobby config (With Bots toggle + Max Players stepper)
+-- ============================================================
+-- Two-row config block placed between the status label and the bottom-anchored
+-- CTAs. Layout is the same on desktop and mobile — only the button sizes
+-- shrink (80×40 → 60×32) and the rows compact slightly on narrow viewports.
+local MIN_MAX_PLAYERS = 2
+local MAX_MAX_PLAYERS = 20
+local DEFAULT_MAX_PLAYERS = 20
+
+local withBots = true
+local maxPlayers = DEFAULT_MAX_PLAYERS
+
+local configBlock = Instance.new("Frame")
+configBlock.Size = UDim2.new(1, -2 * UITheme.Space.xxl, 0, 96)
+configBlock.Position = UDim2.new(0, UITheme.Space.xxl, 0, 172)
+configBlock.BackgroundTransparency = 1
+configBlock.Parent = stageA
+
+-- Row: With Bots ON/OFF
+local botsRow = Instance.new("Frame")
+botsRow.Size = UDim2.new(1, 0, 0, 40)
+botsRow.Position = UDim2.new(0, 0, 0, 0)
+botsRow.BackgroundTransparency = 1
+botsRow.Parent = configBlock
+
+local botsLbl = Instance.new("TextLabel")
+botsLbl.Size = UDim2.new(0.45, 0, 1, 0)
+botsLbl.Position = UDim2.new(0, 0, 0, 0)
+botsLbl.BackgroundTransparency = 1
+botsLbl.Font = UITheme.Font.heading
+botsLbl.TextSize = UITheme.FontSize.body
+botsLbl.TextColor3 = UITheme.Color.textSecondary
+botsLbl.TextXAlignment = Enum.TextXAlignment.Left
+botsLbl.Text = "With Bots:"
+botsLbl.Parent = botsRow
+
+local function makeToggleBtn(text: string, parent: Instance): (TextButton, UIStroke)
+	local btn = Instance.new("TextButton")
+	btn.BackgroundColor3 = UITheme.Color.bgElevated
+	btn.BorderSizePixel = 0
+	btn.AutoButtonColor = false
+	btn.Font = UITheme.Font.display
+	btn.TextSize = UITheme.FontSize.caption
+	btn.TextColor3 = UITheme.Color.textPrimary
+	btn.Text = text
+	btn.Parent = parent
+	UITheme.corner(btn, "sm")
+	local s = UITheme.stroke(btn, "borderSubtle", 1)
+	return btn, s
+end
+
+local botsOnBtn, botsOnStroke = makeToggleBtn("ON", botsRow)
+local botsOffBtn, botsOffStroke = makeToggleBtn("OFF", botsRow)
+
+-- Row: Max Players  [-]  N  [+]
+local playersRow = Instance.new("Frame")
+playersRow.Size = UDim2.new(1, 0, 0, 40)
+playersRow.Position = UDim2.new(0, 0, 0, 52)
+playersRow.BackgroundTransparency = 1
+playersRow.Parent = configBlock
+
+local playersLbl = Instance.new("TextLabel")
+playersLbl.Size = UDim2.new(0.45, 0, 1, 0)
+playersLbl.Position = UDim2.new(0, 0, 0, 0)
+playersLbl.BackgroundTransparency = 1
+playersLbl.Font = UITheme.Font.heading
+playersLbl.TextSize = UITheme.FontSize.body
+playersLbl.TextColor3 = UITheme.Color.textSecondary
+playersLbl.TextXAlignment = Enum.TextXAlignment.Left
+playersLbl.Text = "Max Players:"
+playersLbl.Parent = playersRow
+
+local minusBtn, minusStroke = makeToggleBtn("-", playersRow)
+local plusBtn, plusStroke = makeToggleBtn("+", playersRow)
+
+local countLbl = Instance.new("TextLabel")
+countLbl.BackgroundTransparency = 1
+countLbl.Font = UITheme.Font.mono
+countLbl.TextSize = UITheme.FontSize.bodyLg
+countLbl.TextColor3 = UITheme.Color.textPrimary
+countLbl.TextXAlignment = Enum.TextXAlignment.Center
+countLbl.TextYAlignment = Enum.TextYAlignment.Center
+countLbl.Text = tostring(maxPlayers)
+countLbl.Parent = playersRow
+
+-- Position the buttons + count label. Sizes/positions are re-applied in
+-- relayoutConfig() because mobile shrinks them (80×40 → 60×32).
+local function relayoutConfig()
+	local mobile = isMobile()
+	local toggleW = if mobile then 60 else 80
+	local toggleH = if mobile then 32 else 40
+
+	-- With Bots: ON / OFF (right-aligned in row)
+	botsOnBtn.Size = UDim2.new(0, toggleW, 0, toggleH)
+	botsOnBtn.AnchorPoint = Vector2.new(1, 0.5)
+	botsOnBtn.Position = UDim2.new(1, -(toggleW + UITheme.Space.s), 0.5, 0)
+	botsOffBtn.Size = UDim2.new(0, toggleW, 0, toggleH)
+	botsOffBtn.AnchorPoint = Vector2.new(1, 0.5)
+	botsOffBtn.Position = UDim2.new(1, 0, 0.5, 0)
+
+	-- Max Players: [+] right-anchored, count to its left, [-] further left
+	plusBtn.Size = UDim2.new(0, toggleW, 0, toggleH)
+	plusBtn.AnchorPoint = Vector2.new(1, 0.5)
+	plusBtn.Position = UDim2.new(1, 0, 0.5, 0)
+	countLbl.Size = UDim2.new(0, 48, 0, toggleH)
+	countLbl.AnchorPoint = Vector2.new(1, 0.5)
+	countLbl.Position = UDim2.new(1, -(toggleW + UITheme.Space.s), 0.5, 0)
+	minusBtn.Size = UDim2.new(0, toggleW, 0, toggleH)
+	minusBtn.AnchorPoint = Vector2.new(1, 0.5)
+	minusBtn.Position = UDim2.new(1, -(toggleW + 48 + 2 * UITheme.Space.s), 0.5, 0)
+end
+relayoutConfig()
+if Workspace.CurrentCamera then
+	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(relayoutConfig)
+end
+
+-- Visual state for the ON/OFF toggle pair and the +/- stepper.
+local function refreshToggles()
+	-- ON/OFF: active button shows accent stroke + bright bg
+	if withBots then
+		botsOnBtn.BackgroundColor3 = UITheme.Color.accentPrimary
+		botsOnBtn.TextColor3 = UITheme.Color.textInverse
+		botsOnStroke.Color = UITheme.Color.accentPrimary
+		botsOnStroke.Thickness = 2
+		botsOffBtn.BackgroundColor3 = UITheme.Color.bgElevated
+		botsOffBtn.TextColor3 = UITheme.Color.textSecondary
+		botsOffStroke.Color = UITheme.Color.borderSubtle
+		botsOffStroke.Thickness = 1
+	else
+		botsOffBtn.BackgroundColor3 = UITheme.Color.accentPrimary
+		botsOffBtn.TextColor3 = UITheme.Color.textInverse
+		botsOffStroke.Color = UITheme.Color.accentPrimary
+		botsOffStroke.Thickness = 2
+		botsOnBtn.BackgroundColor3 = UITheme.Color.bgElevated
+		botsOnBtn.TextColor3 = UITheme.Color.textSecondary
+		botsOnStroke.Color = UITheme.Color.borderSubtle
+		botsOnStroke.Thickness = 1
+	end
+	-- Stepper count
+	countLbl.Text = tostring(maxPlayers)
+	-- Dim +/- at bounds
+	local minDimmed = maxPlayers <= MIN_MAX_PLAYERS
+	local maxDimmed = maxPlayers >= MAX_MAX_PLAYERS
+	minusBtn.TextColor3 = if minDimmed then UITheme.Color.textTertiary else UITheme.Color.textPrimary
+	minusStroke.Color = if minDimmed then UITheme.Color.borderSubtle else UITheme.Color.borderSubtle
+	plusBtn.TextColor3 = if maxDimmed then UITheme.Color.textTertiary else UITheme.Color.textPrimary
+	plusStroke.Color = if maxDimmed then UITheme.Color.borderSubtle else UITheme.Color.borderSubtle
+end
+refreshToggles()
+
+botsOnBtn.MouseButton1Click:Connect(function()
+	withBots = true
+	refreshToggles()
+end)
+botsOffBtn.MouseButton1Click:Connect(function()
+	withBots = false
+	refreshToggles()
+end)
+minusBtn.MouseButton1Click:Connect(function()
+	if maxPlayers > MIN_MAX_PLAYERS then
+		maxPlayers -= 1
+		refreshToggles()
+	end
+end)
+plusBtn.MouseButton1Click:Connect(function()
+	if maxPlayers < MAX_MAX_PLAYERS then
+		maxPlayers += 1
+		refreshToggles()
+	end
+end)
+
 -- CREATE button (primary CTA, neon-cyan)
 local createBtn = Instance.new("TextButton")
 createBtn.Size = UDim2.new(1, -2 * UITheme.Space.xxl, 0, UITheme.TouchTarget.prominent)
@@ -386,6 +558,11 @@ local function setOpen(value: boolean)
 		createStatusLbl.Text = ""
 		createBtn.Text = "CREATE"
 		createBtn.Active = true
+		-- Reset config toggles to defaults each time the modal opens, so a
+		-- previous attempt's settings don't silently persist.
+		withBots = true
+		maxPlayers = DEFAULT_MAX_PLAYERS
+		refreshToggles()
 		setStage("A")
 	end
 end
@@ -531,8 +708,9 @@ createBtn.MouseButton1Click:Connect(function()
 	createStatusLbl.Text = ""
 
 	task.spawn(function()
+		local config = { withBots = withBots, maxPlayers = maxPlayers }
 		local ok, result = pcall(function()
-			return Remotes.CreatePrivateLobby:InvokeServer()
+			return Remotes.CreatePrivateLobby:InvokeServer(config)
 		end)
 		if not ok then
 			showCreateError("Gagal: " .. tostring(result))

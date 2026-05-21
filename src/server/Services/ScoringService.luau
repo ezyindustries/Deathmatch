@@ -12,6 +12,12 @@ local MatchStateService = require(script.Parent.MatchStateService)
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local WeaponService = require(script.Parent.WeaponService)
 
+-- Lazy-require: DeathmatchTeamService listens on remotes and is auto-loaded
+-- by the Services iterator; lazy-resolve so we don't fight init order.
+local function teamSvc()
+	return require(script.Parent.DeathmatchTeamService)
+end
+
 local ScoringService = {}
 
 export type MatchScore = {
@@ -115,6 +121,18 @@ WeaponService.BotKilled:Connect(function(killer: Player, botName: string)
 	ScoringService.PlayerKilledBot(killer, botName)
 end)
 
+-- Resolve a bot's character Model by name. Bots live directly under Workspace
+-- with an IsBot=true attribute; we scan top-level children only (cheap).
+-- Returns nil if no live bot with that name is currently in the world.
+local function findBotByName(name: string): Model?
+	local Workspace = game:GetService("Workspace")
+	local m = Workspace:FindFirstChild(name)
+	if m and m:IsA("Model") and m:GetAttribute("IsBot") == true then
+		return m
+	end
+	return nil
+end
+
 WeaponService.PlayerKilled:Connect(function(killer: Player, victim: Player, weapon: any, _isHeadshot: boolean)
 	local killerScore = getScore(killer.UserId)
 	local victimScore = getScore(victim.UserId)
@@ -150,6 +168,13 @@ WeaponService.PlayerKilled:Connect(function(killer: Player, victim: Player, weap
 		-- Bonus coins per streak milestone
 		PlayerDataService.AddCurrency(killer, "coins", streak * 5)
 	end
+
+	-- Team aggregate update (deathmatch only — CasualService runs its own
+	-- T/CT scoring path). Pass both characters so the team service can
+	-- resolve teams via Players:GetPlayerFromCharacter.
+	pcall(function()
+		teamSvc().OnKill(killer.Character, victim.Character)
+	end)
 
 	broadcastScoreboard()
 end)
@@ -268,6 +293,12 @@ function ScoringService.PlayerKilledBot(killer: Player, botName: string)
 		})
 		PlayerDataService.AddCurrency(killer, "coins", streak * 5)
 	end
+	-- Team aggregate update (DM only). Look up the victim bot's Model by
+	-- name so the team service can resolve it via the same Model key it
+	-- stores the bot's team assignment under.
+	pcall(function()
+		teamSvc().OnKill(killer.Character, findBotByName(botName))
+	end)
 	broadcastScoreboard()
 end
 
@@ -285,12 +316,20 @@ function ScoringService.BotKilledPlayer(botName: string, victim: Player)
 			PlayerDataService.IncrementStat(victim, "xp", delta)
 		end
 	end
+	-- Team aggregate update (DM only).
+	pcall(function()
+		teamSvc().OnKill(findBotByName(botName), victim.Character)
+	end)
 	broadcastScoreboard()
 end
 
 function ScoringService.BotKilledBot(killerName: string, victimName: string)
 	getBotScore(killerName).kills += 1
 	getBotScore(victimName).deaths += 1
+	-- Team aggregate update (DM only).
+	pcall(function()
+		teamSvc().OnKill(findBotByName(killerName), findBotByName(victimName))
+	end)
 	broadcastScoreboard()
 end
 

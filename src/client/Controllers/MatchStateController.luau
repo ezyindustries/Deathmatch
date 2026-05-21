@@ -23,6 +23,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local MatchState = require(Shared.Modules.MatchState)
 local Remotes = require(Shared.Modules.Remotes)
 local UITheme = require(Shared.Modules.UITheme)
+local DMTeams = require(Shared.Modules.DMTeams)
 
 local MatchStateController = {}
 
@@ -177,6 +178,56 @@ timerLabel.Text = "0:00"
 timerLabel.LayoutOrder = 4
 timerLabel.Parent = container
 
+-- Score-arrow separator (between timer and team score)
+local scoreSep = Instance.new("TextLabel")
+scoreSep.AutomaticSize = Enum.AutomaticSize.X
+scoreSep.Size = UDim2.new(0, 0, 1, 0)
+scoreSep.BackgroundTransparency = 1
+scoreSep.Font = UITheme.Font.body
+scoreSep.TextSize = UITheme.FontSize.caption
+scoreSep.TextColor3 = UITheme.Color.textTertiary
+scoreSep.Text = "\u{25B8}"  -- ▸
+scoreSep.LayoutOrder = 5
+scoreSep.Visible = false
+scoreSep.Parent = container
+
+-- Team-score label — "47-32" with team A kills colored blue and team B red.
+-- Uses RichText so a single TextLabel can hold both colors.
+local scoreLabel = Instance.new("TextLabel")
+scoreLabel.AutomaticSize = Enum.AutomaticSize.X
+scoreLabel.Size = UDim2.new(0, 0, 1, 0)
+scoreLabel.BackgroundTransparency = 1
+scoreLabel.Font = UITheme.Font.mono
+scoreLabel.TextSize = UITheme.FontSize.caption
+scoreLabel.TextColor3 = UITheme.Color.textPrimary
+scoreLabel.RichText = true
+scoreLabel.Text = ""
+scoreLabel.LayoutOrder = 6
+scoreLabel.Visible = false
+scoreLabel.Parent = container
+
+-- Convert Color3 (0..1 floats) to "RRGGBB" hex string for RichText.
+local function colorToHex(c: Color3): string
+	return string.format("%02X%02X%02X",
+		math.floor(c.R * 255 + 0.5),
+		math.floor(c.G * 255 + 0.5),
+		math.floor(c.B * 255 + 0.5))
+end
+
+local TEAM_A_HEX = colorToHex(DMTeams.Colors.A)
+local TEAM_B_HEX = colorToHex(DMTeams.Colors.B)
+
+local function setTeamScore(aKills: number, bKills: number)
+	scoreLabel.Text = string.format(
+		"<font color=\"#%s\">%d</font>-<font color=\"#%s\">%d</font>",
+		TEAM_A_HEX, aKills, TEAM_B_HEX, bKills
+	)
+	scoreLabel.Visible = true
+	scoreSep.Visible = true
+end
+
+MatchStateController.setTeamScore = setTeamScore
+
 -- ---------------------------------------------------------------------------
 -- Topbar inset compensation (Bug fix: HUD covered by Roblox topbar on mobile)
 -- ---------------------------------------------------------------------------
@@ -211,6 +262,8 @@ local function refreshSize()
 	stateLabel.TextSize = fontSize
 	arrowLabel.TextSize = fontSize
 	timerLabel.TextSize = fontSize
+	scoreSep.TextSize = fontSize
+	scoreLabel.TextSize = fontSize
 end
 refreshSize()
 if Workspace.CurrentCamera then
@@ -324,6 +377,19 @@ RunService.RenderStepped:Connect(function()
 	local elapsed = Workspace:GetServerTimeNow() - currentPayload.startedAt
 	local remaining = math.max(0, currentPayload.duration - elapsed)
 	timerLabel.Text = formatTimer(remaining)
+end)
+
+-- Team-score sublabel. Subscribes to TeamStateChanged to keep the "47-32"
+-- chip live. The chip stays hidden until the first event arrives — keeps the
+-- MatchHUD clean during non-DM modes (casual / training) where TeamStateChanged
+-- never fires.
+Remotes.TeamStateChanged.OnClientEvent:Connect(function(payload: any)
+	if typeof(payload) ~= "table" then return end
+	local a = payload.teamA
+	local b = payload.teamB
+	local aK = (a and typeof(a.kills) == "number") and a.kills or 0
+	local bK = (b and typeof(b.kills) == "number") and b.kills or 0
+	setTeamScore(aK, bK)
 end)
 
 return MatchStateController

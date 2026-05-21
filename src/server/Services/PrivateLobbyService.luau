@@ -15,8 +15,10 @@
 -- plenty for a 30-min collision window.
 
 local MemoryStoreService = game:GetService("MemoryStoreService")
+local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared.Modules.Remotes)
@@ -28,6 +30,18 @@ local CODE_TTL = 1800            -- 30 minutes
 local CODE_LENGTH = 6
 local CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"   -- no 0/O/I/l/1
 local CODE_GEN_RETRIES = 5       -- if generated code collides with existing key, retry
+
+-- Defaults / bounds for the host-configurable lobby settings (passed as the
+-- optional `config` arg to CreatePrivateLobby).
+local DEFAULT_WITH_BOTS = true
+local DEFAULT_MAX_PLAYERS = 20
+local MIN_MAX_PLAYERS = 2
+local MAX_MAX_PLAYERS = 20
+
+export type LobbyConfig = {
+	withBots: boolean,
+	maxPlayers: number,
+}
 
 export type CreateResult = {
 	ok: boolean,
@@ -49,7 +63,34 @@ export type StoredCode = {
 	privateServerId: string,
 	hostUserId: number,
 	createdAt: number,
+	withBots: boolean,
+	maxPlayers: number,
 }
+
+-- Coerce/validate an arbitrary client-supplied config payload into a safe
+-- LobbyConfig. Missing/invalid fields fall back to defaults; maxPlayers is
+-- clamped + integerized to keep the reserved server within engine limits.
+local function normalizeConfig(raw: any): LobbyConfig
+	local withBots = DEFAULT_WITH_BOTS
+	local maxPlayers = DEFAULT_MAX_PLAYERS
+	if typeof(raw) == "table" then
+		local t = raw :: any
+		if typeof(t.withBots) == "boolean" then
+			withBots = t.withBots
+		end
+		if typeof(t.maxPlayers) == "number" then
+			local mp = math.floor(t.maxPlayers)
+			if mp < MIN_MAX_PLAYERS then mp = MIN_MAX_PLAYERS end
+			if mp > MAX_MAX_PLAYERS then mp = MAX_MAX_PLAYERS end
+			maxPlayers = mp
+		end
+	end
+	return { withBots = withBots, maxPlayers = maxPlayers }
+end
+
+function PrivateLobbyService.NormalizeConfigForTest(raw: any): LobbyConfig
+	return normalizeConfig(raw)
+end
 
 -- Track lobbies created by this server so LeavePrivateLobby has something to
 -- key off of. The HashMap is the source of truth; this is a local convenience
@@ -117,11 +158,21 @@ local function lookupCode(code: string): (StoredCode?, string?)
 	if typeof(v.accessCode) ~= "string" or typeof(v.privateServerId) ~= "string" then
 		return nil, "Code entry malformed"
 	end
+	local withBots = if typeof(v.withBots) == "boolean" then v.withBots else DEFAULT_WITH_BOTS
+	local maxPlayers = DEFAULT_MAX_PLAYERS
+	if typeof(v.maxPlayers) == "number" then
+		local mp = math.floor(v.maxPlayers)
+		if mp < MIN_MAX_PLAYERS then mp = MIN_MAX_PLAYERS end
+		if mp > MAX_MAX_PLAYERS then mp = MAX_MAX_PLAYERS end
+		maxPlayers = mp
+	end
 	return {
 		accessCode = v.accessCode,
 		privateServerId = v.privateServerId,
 		hostUserId = typeof(v.hostUserId) == "number" and v.hostUserId or 0,
 		createdAt = typeof(v.createdAt) == "number" and v.createdAt or os.time(),
+		withBots = withBots,
+		maxPlayers = maxPlayers,
 	}, nil
 end
 
@@ -137,7 +188,13 @@ end
 -- ============================================================================
 -- CreatePrivateLobby
 -- ============================================================================
-Remotes.CreatePrivateLobby.OnServerInvoke = function(player: Player): CreateResult
+-- Signature: Remotes.CreatePrivateLobby:InvokeServer(config?)
+--   config = { withBots: boolean, maxPlayers: number } (both optional)
+-- Old call-sites with no args still work — `normalizeConfig` returns defaults
+-- (withBots=true, maxPlayers=20) for any non-table or partial payload.
+Remotes.CreatePrivateLobby.OnServerInvoke = function(player: Player, rawConfig: any): CreateResult
+	local config = normalizeConfig(rawConfig)
+
 	-- Step 1: reserve a server slot from Roblox.
 	local reserveOk, accessCode, privateServerId = pcall(function()
 		return TeleportService:ReserveServer(game.PlaceId)
@@ -155,6 +212,8 @@ Remotes.CreatePrivateLobby.OnServerInvoke = function(player: Player): CreateResu
 		privateServerId = privateServerId :: string,
 		hostUserId = player.UserId,
 		createdAt = os.time(),
+		withBots = config.withBots,
+		maxPlayers = config.maxPlayers,
 	}
 	local code, claimErr = claimUniqueCode(payload)
 	if not code then
@@ -166,15 +225,23 @@ Remotes.CreatePrivateLobby.OnServerInvoke = function(player: Player): CreateResu
 
 	hostUserIdToCode[player.UserId] = code
 
-	-- Step 3: teleport the host to their new reserved server. Fire-and-forget;
-	-- if the teleport fails the client will surface a TeleportInitFailed error
-	-- and can retry via JoinSessionByCode using the returned code.
+	-- Step 3: teleport the host to their new reserved server. We forward the
+	-- lobby config via TeleportData so the receiving server can read it on
+	-- PlayerAdded and stamp it onto Workspace attributes. Fire-and-forget;
+	-- if the teleport fails the client will surface TeleportInitFailed and
+	-- can retry via JoinSessionByCode (which also forwards the config).
 	task.spawn(function()
 		local teleOk, teleErr = pcall(function()
+			local teleportData = {
+				withBots = config.withBots,
+				maxPlayers = config.maxPlayers,
+			}
 			TeleportService:TeleportToPrivateServer(
 				game.PlaceId,
 				accessCode :: string,
-				{ player }
+				{ player },
+				nil,
+				teleportData
 			)
 		end)
 		if not teleOk then
@@ -203,12 +270,20 @@ Remotes.JoinSessionByCode.OnServerInvoke = function(player: Player, rawCode: any
 		return { ok = false, error = "Code not found" }
 	end
 
-	-- Teleport caller into the reserved server.
+	-- Teleport caller into the reserved server. Forward the stored config as
+	-- TeleportData so the receiving server can stamp Workspace attributes
+	-- consistently for joiners too (host already does this on their teleport).
 	local teleOk, teleErr = pcall(function()
+		local teleportData = {
+			withBots = entry.withBots,
+			maxPlayers = entry.maxPlayers,
+		}
 		TeleportService:TeleportToPrivateServer(
 			game.PlaceId,
 			entry.accessCode,
-			{ player }
+			{ player },
+			nil,
+			teleportData
 		)
 	end)
 	if not teleOk then
@@ -226,6 +301,49 @@ end
 Remotes.LeavePrivateLobby.OnServerInvoke = function(player: Player): LeaveResult
 	hostUserIdToCode[player.UserId] = nil
 	return { ok = true }
+end
+
+-- ============================================================================
+-- Receive lobby config on the reserved server side
+-- ============================================================================
+-- When players teleport INTO a private server we read the TeleportData payload
+-- they brought with them (set by CreatePrivateLobby / JoinSessionByCode above)
+-- and stamp the lobby config onto Workspace attributes. Other services
+-- (DeathmatchBotService etc.) read those attributes to honor host preferences
+-- without having to reach into PrivateLobbyService directly.
+--
+-- All teleported players bring the same config along, but we only need to
+-- set the attribute once per server life — guarded with a flag. If for some
+-- reason the first player arrived with malformed/no data we still try the
+-- next arriving player.
+local IS_PRIVATE_SERVER_BOOT = game.PrivateServerId ~= ""
+local lobbyConfigApplied = false
+
+local function applyTeleportDataToWorkspace(player: Player)
+	if not IS_PRIVATE_SERVER_BOOT then return end
+	if lobbyConfigApplied then return end
+	local ok, joinData = pcall(function()
+		return player:GetJoinData()
+	end)
+	if not ok or typeof(joinData) ~= "table" then return end
+	local teleportData = (joinData :: any).TeleportData
+	if typeof(teleportData) ~= "table" then return end
+	local cfg = normalizeConfig(teleportData)
+	Workspace:SetAttribute("WithBots", cfg.withBots)
+	Workspace:SetAttribute("MaxPlayers", cfg.maxPlayers)
+	lobbyConfigApplied = true
+	print(string.format(
+		"[PrivateLobby] Applied lobby config from %s — WithBots=%s, MaxPlayers=%d",
+		player.Name, tostring(cfg.withBots), cfg.maxPlayers
+	))
+end
+
+if IS_PRIVATE_SERVER_BOOT then
+	Players.PlayerAdded:Connect(applyTeleportDataToWorkspace)
+	-- Also handle any player who joined before this service registered.
+	for _, p in Players:GetPlayers() do
+		task.spawn(applyTeleportDataToWorkspace, p)
+	end
 end
 
 -- Public API for sibling services / tests.

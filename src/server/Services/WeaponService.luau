@@ -60,6 +60,13 @@ local function casual()
 	return require(script.Parent.CasualService)
 end
 
+-- Lazy-required: DeathmatchTeamService also requires this file in the future,
+-- and load order is non-deterministic. Lazy-resolve so the cycle (if any)
+-- only materializes at first call, by which point both modules are cached.
+local function teamSvc()
+	return require(script.Parent.DeathmatchTeamService)
+end
+
 -- Training players are always allowed to fire (bypass match state).
 -- In casual mode, fire is only allowed during the LIVE round phase (not BUY/POST).
 local function canFireFor(player: Player): boolean
@@ -378,6 +385,19 @@ Remotes.FireRequest.OnServerEvent:Connect(function(player: Player, originRaw: an
 		end
 	end
 
+	-- Deathmatch (10v10 TDM): friendly fire OFF — same-team shots are eaten.
+	-- We only suppress when BOTH sides have an explicit team tag AND match;
+	-- if either side is untagged (e.g. training dummies, mode transition
+	-- window) damage falls through.
+	if MatchStateService.GetGamemode() == "deathmatch" then
+		local svc = teamSvc()
+		local attackerTeam = svc.GetTeam(player)
+		local victimTeam = if hitPlayer then svc.GetTeam(hitPlayer) else svc.GetTeam(hitChar)
+		if attackerTeam and victimTeam and attackerTeam == victimTeam then
+			return
+		end
+	end
+
 	hitHumanoid:TakeDamage(damage)
 	local killed = hitHumanoid.Health <= 0
 
@@ -424,6 +444,16 @@ Remotes.FireRequest.OnServerEvent:Connect(function(player: Player, originRaw: an
 		local titleId = killerProfile and killerProfile.equipped.title
 		local kfxId = killerProfile and killerProfile.equipped.kill_effect
 		local victimName = hitPlayer and hitPlayer.Name or hitChar.Name
+		-- Resolve team tags for client-side coloring (KillFeedController uses them
+		-- to color killer/victim names by Tim Kawan vs Tim Lawan). Lazy-required
+		-- to avoid load-order coupling; pcall so casual / training stays safe.
+		local killerTeam: string? = nil
+		local victimTeam: string? = nil
+		pcall(function()
+			local team = require(script.Parent.DeathmatchTeamService)
+			killerTeam = team.GetTeam(player.Character) :: any
+			victimTeam = team.GetTeam(hitChar) :: any
+		end)
 		Remotes.KillFeedEntry:FireAllClients({
 			killer = player.Name,
 			victim = victimName,
@@ -434,6 +464,8 @@ Remotes.FireRequest.OnServerEvent:Connect(function(player: Player, originRaw: an
 			titleId = titleId,
 			killEffectId = kfxId,
 			victimPosition = result.Position,
+			killerTeam = killerTeam,
+			victimTeam = victimTeam,
 		})
 		if hitPlayer then
 			Remotes.DeathInfo:FireClient(hitPlayer, {

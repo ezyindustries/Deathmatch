@@ -56,6 +56,11 @@ local REMOTE_NAMES = {
 	"PrivateLobbyReady",     -- client → server: bool — toggle ready state in private lobby
 	"PrivateLobbyStart",     -- client (host only) → server: start the match from private lobby
 	"PartyInviteReceived",   -- server → client: { fromName, code } — notification when invited
+	-- Team Deathmatch (10v10)
+	"ChooseTeam",            -- client → server: "A" | "B" | "AUTO"
+	"TeamAssigned",          -- server → client: { team: "A"|"B", lockedUntil: number } — confirmation + switch cooldown
+	"TeamStateChanged",      -- server → all clients: { teamA: { players, kills, deaths }, teamB: { players, kills, deaths } } — sent on every team change + every kill
+	"OpenTeamSelect",        -- server → client: force-open the team select modal (e.g. at match start)
 }
 
 -- RemoteFunction names. Used for request/response (RPC-style) where the

@@ -382,7 +382,7 @@ local MODES: { ModeInfo } = {
 		id = "deathmatch",
 		name = "DEATHMATCH",
 		tagline = "FREE-FOR-ALL",
-		info = "Respawn terus, kill sebanyak-banyaknya dalam 6 menit. Semua senjata bebas.",
+		info = "10 vs 10 Team Deathmatch — kerjasama bareng tim untuk menang.",
 		accent = Color3.fromRGB(220, 100, 80),
 	},
 	{
