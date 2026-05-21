@@ -441,11 +441,63 @@ if IS_PRIVATE_SERVER_BOOT then
 	end
 	-- Listen for client-side ready toggles (Remotes.PrivateLobbyReady fires
 	-- (bool)). We just record + rebroadcast — actual "start match" gating
-	-- happens elsewhere (PrivateLobbyStart handler, or scheduled task).
+	-- happens in the PrivateLobbyStart handler below.
 	pcall(function()
 		Remotes.PrivateLobbyReady.OnServerEvent:Connect(function(p: Player, ready: any)
 			memberReady[p.UserId] = ready == true
 			broadcastLobbyUpdate()
+		end)
+	end)
+
+	-- HOST CLICKS START MATCH → fast-forward the match state machine to
+	-- VOTING so the round begins. Validates: caller is host, ≥1 member, all
+	-- members ready. If gates pass, force-advance via MatchStateService.
+	pcall(function()
+		Remotes.PrivateLobbyStart.OnServerEvent:Connect(function(p: Player)
+			-- Caller must be the host (the player whose UserId matches the
+			-- stored hostUserId attribute set on Workspace at receive-side).
+			local hostId = Workspace:GetAttribute("PrivateServerHostUserId")
+			if hostId and hostId ~= p.UserId then
+				print(string.format(
+					"[PrivateLobby] %s tried to start match but is not host (host=%s)",
+					p.Name, tostring(hostId)
+				))
+				return
+			end
+			-- All members must be ready before we kick the round off.
+			-- Host is implicitly "ready by clicking START" — count them too.
+			local players = Players:GetPlayers()
+			if #players == 0 then return end
+			for _, member in players do
+				local isHost = member.UserId == p.UserId
+				if not isHost and memberReady[member.UserId] ~= true then
+					print(string.format(
+						"[PrivateLobby] Cannot start — %s not ready",
+						member.Name
+					))
+					return
+				end
+			end
+			-- Gate the current state: only advance from LOBBY (the natural
+			-- starting state in a fresh reserved server).
+			local okMSS, MatchStateService = pcall(require, script.Parent.MatchStateService)
+			if not okMSS then
+				warn("[PrivateLobby] MatchStateService unavailable")
+				return
+			end
+			local current = MatchStateService.GetCurrentState()
+			if current ~= "LOBBY" then
+				print(string.format(
+					"[PrivateLobby] Start ignored — match already in state %s",
+					tostring(current)
+				))
+				return
+			end
+			print(string.format(
+				"[PrivateLobby] Host %s started match with %d members",
+				p.Name, #players
+			))
+			MatchStateService.AdvanceTo("VOTING")
 		end)
 	end)
 end
