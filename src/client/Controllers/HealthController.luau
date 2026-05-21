@@ -121,7 +121,12 @@ local function refreshContainerLayout()
 	local cam = Workspace.CurrentCamera
 	local vw = cam and cam.ViewportSize.X or 1920
 	local w, h, matchHudH
-	if vw < 900 then
+	-- Ultra-mobile (vw < 600 — iPhone 4S landscape 480x320) shrinks the HP chip
+	-- to 130x24 and tracks MatchHUD's HEIGHT_ULTRA=20 so the stacked top-left
+	-- column doesn't overflow the limited vertical budget (~320px).
+	if vw < 600 then
+		w, h, matchHudH = 130, 24, 20
+	elseif vw < 900 then
 		w, h, matchHudH = 150, 28, 22
 	elseif vw < 1300 then
 		w, h, matchHudH = 220, 48, 32
@@ -227,7 +232,8 @@ end
 
 -- Wire inner sizing to viewport changes. We mirror the same breakpoint used
 -- by refreshContainerLayout above so heart/HP/bar stay in lockstep with the
--- container width.
+-- container width. Ultra-mobile (vw < 600) reuses the same compact inner
+-- sizing as mobile — the container itself already shrunk to 130x24 above.
 local function refreshInner()
 	local cam = Workspace.CurrentCamera
 	local vw = cam and cam.ViewportSize.X or 1920

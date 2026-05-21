@@ -28,6 +28,7 @@ local function getViewportW(): number
 	local cam = Workspace.CurrentCamera
 	return (cam and cam.ViewportSize.X) or 1920
 end
+local function isUltraVP(): boolean return getViewportW() < 600 end
 local function isMobileVP(): boolean return getViewportW() < 900 end
 local function isTabletVP(): boolean return getViewportW() < 1300 end
 
@@ -405,7 +406,12 @@ local modeStrokes: { UIStroke } = {}
 -- tag. Current values give the action grid 100px+ breathing room.
 local function getCardDims(): (number, number, number)
 	local w, h, gap
-	if isMobileVP() then
+	-- Ultra-mobile (vw < 600) tightens cards to 110x50 so the column total
+	-- (title + cards + action grid) fits the iPhone 4S 320 vh budget without
+	-- the action grid bleeding into the player/version labels at the bottom.
+	if isUltraVP() then
+		w, h, gap = 110, 50, UITheme.Space.xs -- 4
+	elseif isMobileVP() then
 		w, h, gap = 140, 64, UITheme.Space.s -- 8
 	elseif isTabletVP() then
 		w, h, gap = 200, 86, UITheme.Space.m -- 12
@@ -762,7 +768,12 @@ local SIDE_GAP_MOBILE = UITheme.Space.s -- 8
 local SIDE_GAP_DESKTOP = UITheme.Space.m -- 12
 local function getSideMetrics(): (number, number, number, number, number)
 	-- Returns (width, height, edgeInset, iconSize, gap).
-	if isMobileVP() then
+	-- Ultra-mobile (vw < 600) shrinks side buttons further to 40x40 so the
+	-- 3-button column (40*3 + 2*6 = 132) clears the iPhone 4S 320 vh viewport
+	-- and leaves room for the center column. Edge inset reduced to xs (4).
+	if isUltraVP() then
+		return 40, 40, UITheme.Space.xs, 18, UITheme.Space.xs
+	elseif isMobileVP() then
 		return 50, 50, UITheme.Space.s, 22, SIDE_GAP_MOBILE
 	else
 		return 200, UITheme.TouchTarget.prominent, UITheme.Space.x4l, 18, SIDE_GAP_DESKTOP
@@ -893,30 +904,35 @@ end
 -- place. Uses viewport.X (Studio Device Emulator-friendly), NOT TouchEnabled.
 -- ============================================================
 local function applyResponsiveLayout()
+	local ultra = isUltraVP()
 	local mobile = isMobileVP()
 	local tablet = isTabletVP()
 
-	-- Title size: 28 mobile / 40 tablet / 60 desktop. Mobile shrunk from h1=36
-	-- to h2=28 after audit — at 666x374 the h1 dominated ~22% of vertical space.
-	-- Subtitle dropped to micro+hidden-leading-padding for similar reason.
+	-- Title size: 22 ultra / 28 mobile / 40 tablet / 60 desktop. Ultra-mobile
+	-- (iPhone 4S 480x320 landscape) drops title to bodyLg and hides subtitle —
+	-- at vh=320 the title + subtitle + mode cards + action grid all compete
+	-- for the same vertical budget. The cards themselves carry the mode name.
 	if mobile then
-		title.TextSize = UITheme.FontSize.h2 -- 28
-		title.Size = UDim2.new(0, math.min(560, getViewportW() - 80), 0, 36)
-		title.Position = UDim2.new(0.5, 0, 0, UITheme.Space.s) -- 8px from top
-		subtitle.Position = UDim2.new(0.5, 0, 0, UITheme.Space.s + 32)
+		title.TextSize = ultra and UITheme.FontSize.bodyLg or UITheme.FontSize.h2 -- 18 vs 28
+		title.Size = UDim2.new(0, math.min(560, getViewportW() - 80), 0, ultra and 24 or 36)
+		title.Position = UDim2.new(0.5, 0, 0, ultra and UITheme.Space.xs or UITheme.Space.s)
+		subtitle.Position = UDim2.new(0.5, 0, 0, (ultra and UITheme.Space.xs or UITheme.Space.s) + (ultra and 22 or 32))
 		subtitle.TextSize = UITheme.FontSize.micro
+		subtitle.Visible = not ultra
 	elseif tablet then
 		title.TextSize = 40
 		title.Size = UDim2.new(0, 600, 0, 52)
 		title.Position = UDim2.new(0.5, 0, 0, UITheme.Space.xl)
 		subtitle.Position = UDim2.new(0.5, 0, 0, UITheme.Space.xl + 48)
 		subtitle.TextSize = UITheme.FontSize.caption
+		subtitle.Visible = true
 	else
 		title.TextSize = 60
 		title.Size = UDim2.new(0, 600, 0, 80)
 		title.Position = UDim2.new(0.5, 0, 0, 40)
 		subtitle.Position = UDim2.new(0.5, 0, 0, 115)
 		subtitle.TextSize = UITheme.FontSize.caption + 1
+		subtitle.Visible = true
 	end
 
 	-- Recompute card dimensions

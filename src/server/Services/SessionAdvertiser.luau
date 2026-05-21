@@ -89,14 +89,31 @@ local function publish(): boolean
 end
 
 -- Heartbeat loop. Wrapped in task.spawn so it runs alongside the match cycle.
+-- IMMEDIATE first publish so the server appears in the browser within ~0s of
+-- boot rather than ~2-10s (previously: random 0-2s jitter + 8s heartbeat). The
+-- jitter was protecting MemoryStore from a thundering-herd at fleet-wide boot,
+-- but the cost is the very first solo Studio Test session looks invisible for
+-- 8 seconds — which is exactly the user complaint we're fixing.
 task.spawn(function()
-	-- Stagger the first publish slightly so multiple servers booting in the same
-	-- second don't all hit MemoryStore at exactly the same instant.
-	task.wait(math.random() * 2)
+	publish()
 	while true do
-		publish()
 		task.wait(PUBLISH_INTERVAL)
+		publish()
 	end
+end)
+
+-- Republish on every match state change so the browser reflects LOBBY → VOTING
+-- → STARTING → MATCH → ENDING transitions promptly (otherwise a server stuck
+-- in ENDING for up to 8s would still look joinable, and a server that just
+-- entered LOBBY would still show ENDING for up to 8s). MatchStateService is
+-- the source of truth.
+task.spawn(function()
+	-- Lazy require to dodge any chance of load-order issues with sibling services.
+	local ok, MSS = pcall(require, script.Parent.MatchStateService)
+	if not ok or not MSS or not MSS.StateChanged then return end
+	MSS.StateChanged:Connect(function()
+		task.defer(publish)
+	end)
 end)
 
 -- When the last player leaves, push one final update with players=0 so the

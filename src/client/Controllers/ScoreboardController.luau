@@ -176,6 +176,9 @@ end
 
 -- ---------------------------------------------------------------------------
 -- FULL SCOREBOARD (hold Tab) — 2 columns side-by-side, sorted within team.
+-- Responsive: base 640x420, clamped to ≤95% vw / ≤92% vh on small viewports
+-- (iPhone 4S 480x320 → ~456x294). A UIScale on the panel shrinks content
+-- proportionally on mobile + ultra-mobile so player rows stay readable.
 -- ---------------------------------------------------------------------------
 local fullScoreboard = Instance.new("Frame")
 fullScoreboard.Size = UDim2.fromOffset(640, 420)
@@ -188,6 +191,30 @@ fullScoreboard.Visible = false
 fullScoreboard.Parent = screenGui
 UITheme.corner(fullScoreboard, "lg")
 UITheme.stroke(fullScoreboard, "borderSubtle", 1)
+
+-- Multi-viewport responsive sizing for the full scoreboard. Without this the
+-- 640x420 panel overflows iPhone 4S (480x320) — JOIN buttons + headers go
+-- off-screen and the close-via-Tab-release still works but the modal looks
+-- broken. We clamp the panel to viewport bounds and apply UIScale to keep
+-- inner text proportional.
+local fullScoreboardScale = Instance.new("UIScale")
+fullScoreboardScale.Scale = 1
+fullScoreboardScale.Parent = fullScoreboard
+
+local function refreshFullScoreboardSize()
+	local cam = Workspace.CurrentCamera
+	local v = cam and cam.ViewportSize or Vector2.new(640, 420)
+	local maxW = v.X * 0.95
+	local maxH = v.Y * 0.92
+	-- Scale so the natural 640x420 layout fits within the viewport bounds.
+	local sx = math.min(1, maxW / 640)
+	local sy = math.min(1, maxH / 420)
+	fullScoreboardScale.Scale = math.min(sx, sy)
+end
+refreshFullScoreboardSize()
+if Workspace.CurrentCamera then
+	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshFullScoreboardSize)
+end
 
 local fullTitle = Instance.new("TextLabel")
 fullTitle.Size = UDim2.new(1, 0, 0, 40)
@@ -494,6 +521,21 @@ resultsBanner.BackgroundTransparency = 0.1
 resultsBanner.BorderSizePixel = 0
 resultsBanner.Visible = false
 resultsBanner.Parent = screenGui
+
+-- Results banner clamp — 540 wide overflows iPhone 4S 480px viewport.
+-- UIScale on the banner shrinks proportionally to fit ≤90% vw.
+local resultsBannerScale = Instance.new("UIScale")
+resultsBannerScale.Scale = 1
+resultsBannerScale.Parent = resultsBanner
+local function refreshResultsBannerScale()
+	local cam = Workspace.CurrentCamera
+	local v = cam and cam.ViewportSize or Vector2.new(540, 130)
+	resultsBannerScale.Scale = math.min(1, (v.X * 0.9) / 540)
+end
+refreshResultsBannerScale()
+if Workspace.CurrentCamera then
+	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshResultsBannerScale)
+end
 
 local resultsCorner = Instance.new("UICorner")
 resultsCorner.CornerRadius = UDim.new(0, 14)

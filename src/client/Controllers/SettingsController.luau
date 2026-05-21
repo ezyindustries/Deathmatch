@@ -62,6 +62,11 @@ local overlayScale = Instance.new("UIScale")
 -- Parent is set later, AFTER `panel` is created, so the panel variable exists.
 local function refreshOverlayScale()
 	local vw = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize.X or 1920
+	-- Ultra-mobile (vw < 600 — iPhone 4S 480x320 landscape) shrinks panel to
+	-- ~211 wide × 90% of 320 vh = ~159 tall × 0.44 = 70 pixels rendered. That's
+	-- too small for the long scroll list. Keep 0.55 floor (480×0.55 = 264 wide,
+	-- fits 95% of 480 viewport easily). The panel's 0.9-vh height also auto-
+	-- accommodates ultra-mobile so no separate clamp is needed here.
 	if vw < 900 then overlayScale.Scale = 0.55
 	elseif vw < 1300 then overlayScale.Scale = 0.8
 	else overlayScale.Scale = 1.0 end

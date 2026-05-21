@@ -105,8 +105,13 @@ local function refreshPanelSize()
 	local w = math.min(720, v.X * 0.95)
 	local h = math.min(500, v.Y * 0.92)
 	panel.Size = UDim2.fromOffset(w, h)
-	-- Mobile: scale panel down a bit for breathing room.
-	panelScale.Scale = isMobile() and 0.7 or 1.0
+	-- Ultra-mobile (vw < 600 — iPhone 4S 480x320) needs heavier shrink so the
+	-- row layout (thumb + name + join btn) doesn't collapse the middle column
+	-- to <60px. 0.55 keeps all three sections legible.
+	local vw = v.X
+	if vw < 600 then panelScale.Scale = 0.55
+	elseif vw < 900 then panelScale.Scale = 0.7
+	else panelScale.Scale = 1.0 end
 end
 refreshPanelSize()
 if Workspace.CurrentCamera then
@@ -433,8 +438,11 @@ local function renderList()
 	end
 
 	if #sessions == 0 then
+		-- More actionable empty-state copy. Previous "No servers — start a
+		-- private lobby" left players staring at a blank list with no clear
+		-- next step. New copy points to the two viable alternatives explicitly.
 		footer.TextColor3 = UITheme.Color.textTertiary
-		footer.Text = "No servers — start a private lobby"
+		footer.Text = "No public servers visible. Try QUICK PLAY or CREATE PARTY from the main menu."
 	else
 		footer.TextColor3 = UITheme.Color.textSecondary
 		footer.Text = string.format("%d servers available", #sessions)
@@ -504,11 +512,18 @@ local function openModal()
 	end
 	overlay.Visible = true
 	refreshPanelSize()
-	-- Clear stale list; re-render placeholder before fetch lands
+	-- Clear stale list; re-render placeholder before fetch lands. The footer
+	-- explains what's happening AND warns the user (when they're already in a
+	-- private server) that joining a public session will teleport them out of
+	-- their party.
 	sessions = {}
 	renderList()
 	footer.TextColor3 = UITheme.Color.textTertiary
-	footer.Text = "Loading..."
+	if Workspace:GetAttribute("InPrivateServer") == true then
+		footer.Text = "Loading… NOTE: joining a public server will leave your private party."
+	else
+		footer.Text = "Loading public servers…"
+	end
 	doRefresh()
 	startAutoRefreshLoop()
 end

@@ -62,17 +62,32 @@ panel.BorderSizePixel = 0
 panel.Active = true -- absorb clicks so they don't dismiss via outside-tap
 panel.Parent = overlay
 
--- Mobile viewport clamping: shrink panel to fit ≤95% vw, ≤92% vh
+-- Mobile viewport clamping: shrink panel to fit ≤95% vw, ≤92% vh + UIScale
+-- on ultra-mobile (<600 vw) so subtitle, header buttons + grid cards keep
+-- legible proportions. Subtitle hides on mobile to free vertical room.
+local panelScale = Instance.new("UIScale")
+panelScale.Scale = 1
+panelScale.Parent = panel
+-- Forward-declared so refreshPanelSize can toggle subtitle.Visible — the
+-- TextLabel is assigned to this variable further down right after creation.
+local subtitleRef: TextLabel? = nil
 local function refreshPanelSize()
 	local cam = Workspace.CurrentCamera
 	local v = cam and cam.ViewportSize or Vector2.new(1920, 1080)
 	local w = math.min(720, v.X * 0.95)
 	local h = math.min(520, v.Y * 0.92)
 	panel.Size = UDim2.fromOffset(w, h)
-end
-refreshPanelSize()
-if Workspace.CurrentCamera then
-	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshPanelSize)
+	-- Ultra-mobile (vw < 600) additionally scales content so the natural
+	-- 720x520 layout (header + close + scrolling grid) doesn't squish the grid
+	-- to a single column with truncated labels.
+	if v.X < 600 then
+		panelScale.Scale = 0.75
+	else
+		panelScale.Scale = 1
+	end
+	-- Subtitle hidden on mobile + ultra-mobile so close button reaches the
+	-- right edge cleanly and the grid gets ~24 more vertical pixels.
+	if subtitleRef then subtitleRef.Visible = v.X >= 900 end
 end
 
 local panelCorner = Instance.new("UICorner")
@@ -100,6 +115,13 @@ subtitle.TextColor3 = Color3.fromRGB(170, 175, 195)
 subtitle.TextXAlignment = Enum.TextXAlignment.Left
 subtitle.Text = "Gamepasses (permanent) and Coin/Gem packs"
 subtitle.Parent = panel
+-- Wire into forward-declared ref so refreshPanelSize can hide on mobile,
+-- then run the responsive pass and bind to viewport changes.
+subtitleRef = subtitle
+refreshPanelSize()
+if Workspace.CurrentCamera then
+	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshPanelSize)
+end
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 80, 0, 30)

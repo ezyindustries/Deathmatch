@@ -74,8 +74,12 @@ panel.Parent = overlay
 local panelScale = Instance.new("UIScale")
 panelScale.Parent = panel
 local function refreshPanelScale()
-	local vw = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize.X or 1920
-	if vw < 900 then panelScale.Scale = 0.55
+	local cam = Workspace.CurrentCamera
+	local vw = cam and cam.ViewportSize.X or 1920
+	-- Ultra-mobile (vw < 600) shrinks further so 700x540 base renders as
+	-- ~308x238 — fits iPhone 4S 480x320 with backdrop visible around panel.
+	if vw < 600 then panelScale.Scale = 0.44
+	elseif vw < 900 then panelScale.Scale = 0.55
 	elseif vw < 1300 then panelScale.Scale = 0.8
 	else panelScale.Scale = 1.0 end
 end

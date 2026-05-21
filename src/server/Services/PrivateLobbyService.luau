@@ -226,15 +226,28 @@ Remotes.CreatePrivateLobby.OnServerInvoke = function(player: Player, rawConfig: 
 	hostUserIdToCode[player.UserId] = code
 
 	-- Step 3: teleport the host to their new reserved server. We forward the
-	-- lobby config via TeleportData so the receiving server can read it on
-	-- PlayerAdded and stamp it onto Workspace attributes. Fire-and-forget;
-	-- if the teleport fails the client will surface TeleportInitFailed and
-	-- can retry via JoinSessionByCode (which also forwards the config).
+	-- lobby config + access code via TeleportData so the receiving server can
+	-- read it on PlayerAdded and stamp it onto Workspace attributes. The
+	-- `code` field is what makes the host's modal stay in Stage B post-teleport
+	-- (otherwise their PrivateLobbyController loses state and re-renders
+	-- Stage A "Create" — the exact "code flashes then disappears" bug we're
+	-- fixing). Fire-and-forget; if the teleport fails the client will surface
+	-- TeleportInitFailed and can retry via JoinSessionByCode.
+	--
+	-- We also defer the teleport by a frame so the InvokeServer return value
+	-- (the `code`) has a chance to reach the client BEFORE the teleport begins
+	-- to tear down their controller state. This is belt-and-suspenders on top
+	-- of the TeleportData mechanism.
 	task.spawn(function()
+		task.wait(0.1)
 		local teleOk, teleErr = pcall(function()
 			local teleportData = {
+				code = code,
+				accessCode = accessCode,
 				withBots = config.withBots,
 				maxPlayers = config.maxPlayers,
+				hostUserId = player.UserId,
+				isHost = true,
 			}
 			TeleportService:TeleportToPrivateServer(
 				game.PlaceId,
@@ -270,13 +283,20 @@ Remotes.JoinSessionByCode.OnServerInvoke = function(player: Player, rawCode: any
 		return { ok = false, error = "Code not found" }
 	end
 
-	-- Teleport caller into the reserved server. Forward the stored config as
-	-- TeleportData so the receiving server can stamp Workspace attributes
-	-- consistently for joiners too (host already does this on their teleport).
+	-- Teleport caller into the reserved server. Forward the stored config +
+	-- the code itself as TeleportData so the receiving server can stamp
+	-- Workspace attributes consistently for joiners (host already does this on
+	-- their teleport). Joiners need the code too so the lobby UI shows it
+	-- prominently — they typed it in, but if they re-open the lobby modal
+	-- from in-game we want it visible without a round-trip.
 	local teleOk, teleErr = pcall(function()
 		local teleportData = {
+			code = code,
+			accessCode = entry.accessCode,
 			withBots = entry.withBots,
 			maxPlayers = entry.maxPlayers,
+			hostUserId = entry.hostUserId,
+			isHost = false,
 		}
 		TeleportService:TeleportToPrivateServer(
 			game.PlaceId,
@@ -312,38 +332,122 @@ end
 -- (DeathmatchBotService etc.) read those attributes to honor host preferences
 -- without having to reach into PrivateLobbyService directly.
 --
+-- Equally important: we set `InPrivateServer=true` + `PrivateServerCode=<code>`
+-- on the Workspace so client controllers (PrivateLobbyController, MainMenu)
+-- can render the "you're in a private lobby" UX (badge, auto-open Stage B,
+-- dim buttons that would teleport you away). Without these the host arrives
+-- at the reserved server with NO indication that anything special happened —
+-- which is the "code flashes then disappears" bug from the user's POV.
+--
 -- All teleported players bring the same config along, but we only need to
--- set the attribute once per server life — guarded with a flag. If for some
--- reason the first player arrived with malformed/no data we still try the
--- next arriving player.
+-- set the WithBots/MaxPlayers attributes once per server life — guarded with
+-- a flag. The InPrivateServer/PrivateServerCode attributes are set once and
+-- never change for the lifetime of the reserved server.
 local IS_PRIVATE_SERVER_BOOT = game.PrivateServerId ~= ""
 local lobbyConfigApplied = false
+local privateServerCode: string? = nil
+
+-- Tracked member list for this reserved server. Updated on PlayerAdded /
+-- PlayerRemoving and broadcast via Remotes.PrivateLobbyUpdate so every client
+-- in the lobby sees a live roster + the shared code.
+local memberReady: { [number]: boolean } = {}
+
+local function buildMembersPayload(): { { userId: number, name: string, ready: boolean } }
+	local out: { { userId: number, name: string, ready: boolean } } = {}
+	for _, p in Players:GetPlayers() do
+		table.insert(out, {
+			userId = p.UserId,
+			name = p.Name,
+			ready = memberReady[p.UserId] == true,
+		})
+	end
+	return out
+end
+
+local function broadcastLobbyUpdate()
+	if not IS_PRIVATE_SERVER_BOOT then return end
+	local hostUserId: number? = nil
+	local attrHost = Workspace:GetAttribute("PrivateServerHostUserId")
+	if typeof(attrHost) == "number" then hostUserId = attrHost end
+	local payload = {
+		code = privateServerCode,
+		hostUserId = hostUserId,
+		members = buildMembersPayload(),
+	}
+	pcall(function()
+		Remotes.PrivateLobbyUpdate:FireAllClients(payload)
+	end)
+end
 
 local function applyTeleportDataToWorkspace(player: Player)
 	if not IS_PRIVATE_SERVER_BOOT then return end
-	if lobbyConfigApplied then return end
 	local ok, joinData = pcall(function()
 		return player:GetJoinData()
 	end)
 	if not ok or typeof(joinData) ~= "table" then return end
 	local teleportData = (joinData :: any).TeleportData
-	if typeof(teleportData) ~= "table" then return end
-	local cfg = normalizeConfig(teleportData)
-	Workspace:SetAttribute("WithBots", cfg.withBots)
-	Workspace:SetAttribute("MaxPlayers", cfg.maxPlayers)
-	lobbyConfigApplied = true
-	print(string.format(
-		"[PrivateLobby] Applied lobby config from %s — WithBots=%s, MaxPlayers=%d",
-		player.Name, tostring(cfg.withBots), cfg.maxPlayers
-	))
+	if typeof(teleportData) ~= "table" then
+		-- No teleport data: still publish a basic InPrivateServer flag so the
+		-- client UI knows where it is, even without a code.
+		if Workspace:GetAttribute("InPrivateServer") ~= true then
+			Workspace:SetAttribute("InPrivateServer", true)
+		end
+		return
+	end
+	-- Apply WithBots/MaxPlayers (once per server) from the first valid payload.
+	if not lobbyConfigApplied then
+		local cfg = normalizeConfig(teleportData)
+		Workspace:SetAttribute("WithBots", cfg.withBots)
+		Workspace:SetAttribute("MaxPlayers", cfg.maxPlayers)
+		lobbyConfigApplied = true
+		print(string.format(
+			"[PrivateLobby] Applied lobby config from %s — WithBots=%s, MaxPlayers=%d",
+			player.Name, tostring(cfg.withBots), cfg.maxPlayers
+		))
+	end
+	-- Stamp the code/host info onto Workspace so any client (or service) can
+	-- discover the lobby state without round-tripping the server.
+	if typeof((teleportData :: any).code) == "string" and Workspace:GetAttribute("PrivateServerCode") == nil then
+		privateServerCode = (teleportData :: any).code
+		Workspace:SetAttribute("PrivateServerCode", privateServerCode)
+	end
+	if typeof((teleportData :: any).hostUserId) == "number" and Workspace:GetAttribute("PrivateServerHostUserId") == nil then
+		Workspace:SetAttribute("PrivateServerHostUserId", (teleportData :: any).hostUserId)
+	end
+	if Workspace:GetAttribute("InPrivateServer") ~= true then
+		Workspace:SetAttribute("InPrivateServer", true)
+	end
 end
 
 if IS_PRIVATE_SERVER_BOOT then
-	Players.PlayerAdded:Connect(applyTeleportDataToWorkspace)
+	Players.PlayerAdded:Connect(function(p: Player)
+		applyTeleportDataToWorkspace(p)
+		memberReady[p.UserId] = memberReady[p.UserId] == true
+		-- Fire on next frame so the client's PrivateLobbyController has finished
+		-- mounting + connected its OnClientEvent handler before we send.
+		task.defer(broadcastLobbyUpdate)
+	end)
+	Players.PlayerRemoving:Connect(function(p: Player)
+		memberReady[p.UserId] = nil
+		task.defer(broadcastLobbyUpdate)
+	end)
 	-- Also handle any player who joined before this service registered.
 	for _, p in Players:GetPlayers() do
-		task.spawn(applyTeleportDataToWorkspace, p)
+		task.spawn(function()
+			applyTeleportDataToWorkspace(p)
+			memberReady[p.UserId] = memberReady[p.UserId] == true
+			task.defer(broadcastLobbyUpdate)
+		end)
 	end
+	-- Listen for client-side ready toggles (Remotes.PrivateLobbyReady fires
+	-- (bool)). We just record + rebroadcast — actual "start match" gating
+	-- happens elsewhere (PrivateLobbyStart handler, or scheduled task).
+	pcall(function()
+		Remotes.PrivateLobbyReady.OnServerEvent:Connect(function(p: Player, ready: any)
+			memberReady[p.UserId] = ready == true
+			broadcastLobbyUpdate()
+		end)
+	end)
 end
 
 -- Public API for sibling services / tests.

@@ -40,11 +40,18 @@ local ClientSignals = require(Shared.Modules.ClientSignals)
 local TeamSelectController = {}
 
 local MOBILE_BREAKPOINT = 900
+local ULTRA_BREAKPOINT = 600
 
 local function isMobileViewport(): boolean
 	local cam = Workspace.CurrentCamera
 	local vw = cam and cam.ViewportSize.X or 1920
 	return vw < MOBILE_BREAKPOINT
+end
+
+local function isUltraViewport(): boolean
+	local cam = Workspace.CurrentCamera
+	local vw = cam and cam.ViewportSize.X or 1920
+	return vw < ULTRA_BREAKPOINT
 end
 
 -- ---------------------------------------------------------------------------
@@ -97,6 +104,14 @@ panel.BorderSizePixel = 0
 panel.Parent = screenGui
 UITheme.corner(panel, "lg")
 UITheme.stroke(panel, "borderSubtle", 1)
+
+-- UIScale on PANEL (centered AnchorPoint=0.5,0.5 so scaling preserves center).
+-- On ultra-mobile (iPhone 4S 480x320 landscape) the natural 320x460 mobile
+-- panel still overflows vh=320 — the UIScale shrinks the whole modal so it
+-- fits within ≤92% vh. Without this branch, START/AUTO buttons clip off-screen.
+local panelScale = Instance.new("UIScale")
+panelScale.Scale = 1
+panelScale.Parent = panel
 
 -- Title ("PILIH TIM")
 local title = Instance.new("TextLabel")
@@ -348,6 +363,21 @@ toastLabel.Parent = toast
 -- ---------------------------------------------------------------------------
 local function refreshResponsive()
 	local mobile = isMobileViewport()
+	-- Apply UIScale ONCE per refresh so ultra-narrow viewports get a global
+	-- shrink in addition to the mobile layout swap.
+	local cam = Workspace.CurrentCamera
+	local vw = cam and cam.ViewportSize.X or 1920
+	local vh = cam and cam.ViewportSize.Y or 1080
+	if vw < ULTRA_BREAKPOINT then
+		-- Target panel (320x460 mobile branch) must fit within 95% vw / 92% vh.
+		-- Pick min of (vw*0.95/320, vh*0.92/460); typically driven by vh on
+		-- 480x320 landscape: 320*0.92/460 ≈ 0.64.
+		local sx = math.min(1, (vw * 0.95) / 320)
+		local sy = math.min(1, (vh * 0.92) / 460)
+		panelScale.Scale = math.min(sx, sy)
+	else
+		panelScale.Scale = 1
+	end
 	if mobile then
 		-- Stack vertically: 280x120 cards, gap 8. Title shrinks h2 → h3.
 		panel.Size = UDim2.fromOffset(320, 460)

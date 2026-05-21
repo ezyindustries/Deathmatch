@@ -85,8 +85,16 @@ local function isMobile(): boolean
 	return vw < 900
 end
 
+-- Ultra-mobile (vw < 600 — iPhone 4S 480x320 landscape) shrinks panel further
+-- so the 480x520 modal fits inside ~456x294 (95% vw / 92% vh of 480x320).
+-- Without this branch, 480x0.7=336 wide (OK) but 520x0.7=364 tall vs vh=320
+-- still clips top/bottom. 0.55 brings it down to 264x286 — fits cleanly.
 local function refreshScale()
-	panelScale.Scale = if isMobile() then 0.7 else 1
+	local cam = Workspace.CurrentCamera
+	local vw = cam and cam.ViewportSize.X or 1920
+	if vw < 600 then panelScale.Scale = 0.55
+	elseif vw < 900 then panelScale.Scale = 0.7
+	else panelScale.Scale = 1 end
 end
 refreshScale()
 if Workspace.CurrentCamera then
@@ -803,9 +811,186 @@ Remotes.PrivateLobbyUpdate.OnClientEvent:Connect(function(payload: any)
 	end
 end)
 
+-- ============================================================
+-- "In Private Server" detection + auto-open Stage B
+-- ============================================================
+-- When the host (or a joiner) lands on a reserved server, PrivateLobbyService
+-- stamps Workspace:InPrivateServer=true + PrivateServerCode=<6char>. This
+-- block reacts: it AUTO-OPENS the modal directly to Stage B (the lobby view
+-- with code + members) so the user sees their lobby state immediately on
+-- arrival — instead of the "code flashed for 0.5s then I'm at main menu"
+-- bug from before. It also wires a small persistent PRIVATE badge so the
+-- main-menu view shows the player they're in their party room.
+local function isInPrivateServer(): boolean
+	return Workspace:GetAttribute("InPrivateServer") == true
+end
+
+local function getPrivateCode(): string?
+	local c = Workspace:GetAttribute("PrivateServerCode")
+	if typeof(c) == "string" and c ~= "" then return c end
+	return nil
+end
+
+-- ----- PRIVATE badge (small persistent ScreenGui, top-right) -----
+-- MainMenuController is off-limits so we render this in a separate ScreenGui
+-- (DisplayOrder lower than the modal). It's visible only when in a private
+-- server and is decorative — it just says "PRIVATE LOBBY" + code so the
+-- player always knows where they are.
+local badgeGui = Instance.new("ScreenGui")
+badgeGui.Name = "PrivateLobbyBadge"
+badgeGui.ResetOnSpawn = false
+badgeGui.IgnoreGuiInset = false
+badgeGui.DisplayOrder = 170 -- under our modal (180) but above gameplay HUD
+badgeGui.Enabled = false
+badgeGui.Parent = playerGui
+
+local badgeFrame = Instance.new("Frame")
+badgeFrame.Name = "Badge"
+badgeFrame.AnchorPoint = Vector2.new(1, 0)
+-- 12px from right, 12px below the top (the Roblox topbar already shifts us
+-- since IgnoreGuiInset=false).
+badgeFrame.Position = UDim2.new(1, -12, 0, 12)
+badgeFrame.Size = UDim2.fromOffset(160, 44)
+badgeFrame.BackgroundColor3 = UITheme.Color.bgBase
+badgeFrame.BorderSizePixel = 0
+badgeFrame.Parent = badgeGui
+UITheme.corner(badgeFrame, "md")
+UITheme.stroke(badgeFrame, "accentPrimary", 2)
+
+local badgeAccent = Instance.new("Frame")
+badgeAccent.Size = UDim2.new(0, 4, 1, 0)
+badgeAccent.Position = UDim2.new(0, 0, 0, 0)
+badgeAccent.BackgroundColor3 = UITheme.Color.accentPrimary
+badgeAccent.BorderSizePixel = 0
+badgeAccent.Parent = badgeFrame
+
+local badgeTitle = Instance.new("TextLabel")
+badgeTitle.Size = UDim2.new(1, -16, 0, 16)
+badgeTitle.Position = UDim2.new(0, 12, 0, 4)
+badgeTitle.BackgroundTransparency = 1
+badgeTitle.Font = UITheme.Font.display
+badgeTitle.TextSize = UITheme.FontSize.micro
+badgeTitle.TextColor3 = UITheme.Color.accentPrimary
+badgeTitle.TextXAlignment = Enum.TextXAlignment.Left
+badgeTitle.Text = "PRIVATE LOBBY"
+badgeTitle.Parent = badgeFrame
+
+local badgeCode = Instance.new("TextLabel")
+badgeCode.Size = UDim2.new(1, -16, 0, 20)
+badgeCode.Position = UDim2.new(0, 12, 0, 20)
+badgeCode.BackgroundTransparency = 1
+badgeCode.Font = UITheme.Font.mono
+badgeCode.TextSize = UITheme.FontSize.body
+badgeCode.TextColor3 = UITheme.Color.textPrimary
+badgeCode.TextXAlignment = Enum.TextXAlignment.Left
+badgeCode.Text = "------"
+badgeCode.Parent = badgeFrame
+
+-- Tap the badge → re-open the lobby modal (Stage B). This is the user's
+-- escape hatch if they accidentally close it.
+local badgeBtn = Instance.new("TextButton")
+badgeBtn.Size = UDim2.new(1, 0, 1, 0)
+badgeBtn.BackgroundTransparency = 1
+badgeBtn.Text = ""
+badgeBtn.AutoButtonColor = false
+badgeBtn.Parent = badgeFrame
+
+local function refreshBadge()
+	if isInPrivateServer() then
+		local code = getPrivateCode()
+		badgeCode.Text = code or "------"
+		badgeGui.Enabled = true
+	else
+		badgeGui.Enabled = false
+	end
+end
+
+-- Auto-open Stage B (lobby view) when we detect we're in a private server.
+-- Call once at boot, and once again any time the attribute flips on (the
+-- attribute is set by PrivateLobbyService after the player's character + UI
+-- have loaded, so the value might not be present on the very first frame).
+local autoOpenedOnce = false
+local function tryAutoOpen()
+	if not isInPrivateServer() then return end
+	if autoOpenedOnce then return end
+	autoOpenedOnce = true
+	-- Open the modal directly to Stage B with whatever code is on the workspace.
+	-- The first PrivateLobbyUpdate broadcast from the server will overwrite
+	-- the code + member list almost immediately.
+	overlay.Visible = true
+	currentCode = getPrivateCode()
+	currentHostUserId = Workspace:GetAttribute("PrivateServerHostUserId")
+	if typeof(currentHostUserId) ~= "number" then currentHostUserId = nil end
+	if currentCode then
+		codeLbl.Text = currentCode
+	end
+	-- Seed the member list with just the local player so Stage B has at least
+	-- one row to render while waiting for the broadcast.
+	lastMembers = {
+		{ userId = player.UserId, name = player.Name, ready = false },
+	}
+	rebuildMembers({
+		code = currentCode,
+		hostUserId = currentHostUserId,
+		members = lastMembers,
+	})
+	refreshButtons()
+	setStage("B")
+end
+
+-- Badge click — re-open modal at Stage B with current state.
+badgeBtn.MouseButton1Click:Connect(function()
+	if not isInPrivateServer() then return end
+	overlay.Visible = true
+	currentCode = getPrivateCode()
+	currentHostUserId = Workspace:GetAttribute("PrivateServerHostUserId")
+	if typeof(currentHostUserId) ~= "number" then currentHostUserId = nil end
+	if currentCode then codeLbl.Text = currentCode end
+	if #lastMembers == 0 then
+		lastMembers = { { userId = player.UserId, name = player.Name, ready = localReady } }
+	end
+	rebuildMembers({ code = currentCode, hostUserId = currentHostUserId, members = lastMembers })
+	refreshButtons()
+	setStage("B")
+end)
+
+-- Initial render + attribute-change listeners.
+refreshBadge()
+tryAutoOpen()
+Workspace:GetAttributeChangedSignal("InPrivateServer"):Connect(function()
+	refreshBadge()
+	tryAutoOpen()
+end)
+Workspace:GetAttributeChangedSignal("PrivateServerCode"):Connect(function()
+	refreshBadge()
+	-- Sync the code into the modal if it's open + showing Stage B.
+	local c = getPrivateCode()
+	if c and overlay.Visible and currentStage == "B" then
+		currentCode = c
+		codeLbl.Text = c
+	end
+end)
+
 -- Signal-driven open from MainMenuController (Agent D wires this).
+-- When already in a private server, we skip Stage A (creating another lobby
+-- doesn't make sense — you're already in one) and jump straight to Stage B
+-- so the user sees their existing lobby state instead.
 ClientSignals.Get("OpenPrivateLobby").Event:Connect(function()
-	setOpen(true)
+	if isInPrivateServer() then
+		overlay.Visible = true
+		currentCode = getPrivateCode()
+		currentHostUserId = Workspace:GetAttribute("PrivateServerHostUserId")
+		if typeof(currentHostUserId) ~= "number" then currentHostUserId = nil end
+		if currentCode then codeLbl.Text = currentCode end
+		if #lastMembers == 0 then
+			lastMembers = { { userId = player.UserId, name = player.Name, ready = localReady } }
+		end
+		rebuildMembers({ code = currentCode, hostUserId = currentHostUserId, members = lastMembers })
+		refreshButtons()
+		setStage("B")
+	else
+		setOpen(true)
+	end
 end)
 
 return PrivateLobbyController

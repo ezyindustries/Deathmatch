@@ -54,6 +54,19 @@ local botMuzzle: { [Model]: Attachment } = {}
 local botNames = { "Recruit", "Phantom", "Razor", "Vortex", "Echo", "Specter", "Wraith", "Hunter" }
 local nameIndex = 0
 
+-- Void-rescue tracking. Watchdog flags any bot whose HRP.Y < -100 and forces
+-- a rebuild. If the SAME bot keeps falling into the void after multiple
+-- rescues (rebuildBot can't find spawns, build fails, or the fresh model
+-- still ends up below the floor), we eventually give up so we don't flood
+-- the console + waste CPU forever. Counter is keyed by bot NAME (not Model)
+-- because rebuildBot swaps the Model instance each pass — the name is the
+-- only stable identity across rebuilds.
+local VOID_RESCUE_MAX_ATTEMPTS = 2
+local voidRescueAttempts: { [string]: number } = {}
+-- Track void-rescued names that we've already given up on so we never try to
+-- rebuild them again for the remainder of the match (cleared on clearBots).
+local voidGaveUp: { [string]: boolean } = {}
+
 type BotAIState = {
 	nextFireAt: number,
 	burstRemaining: number,
@@ -609,10 +622,26 @@ end
 -- Forward-declared so setupBot can reference it
 local rebuildBot: (oldBot: Model) -> ()
 
+-- Fallback spawn position used when ArenaService hasn't published spawns yet
+-- (mid-map-rebuild) or when all arena spawns have somehow ended up in the
+-- void. Picked high above the lobby so the bot has time to physics-settle
+-- onto SOMETHING reachable instead of falling straight to FallenPartsDestroy.
+local FALLBACK_SPAWN_POS = Vector3.new(0, 50, 0)
+local VOID_Y_THRESHOLD = -50
+
 -- Full destroy + rebuild rather than just topping up Health. Reviving a dead
 -- Humanoid leaves broken joints + the equipped rifle frozen in the wrong pose;
 -- rebuilding gives us a fresh rig with the rifle, vest, animator, and Died
 -- listener all re-attached cleanly.
+--
+-- CRITICAL invariants this fn must preserve to avoid the void-watchdog loop:
+--   1. oldBot is ALWAYS destroyed + scrubbed from `bots`, even if the new
+--      build fails. A zombie Model lingering in `bots` with Y=-1000000 is
+--      what the watchdog used to rebuild forever.
+--   2. New bot is NEVER inserted back into `bots` until its HRP is verified
+--      above VOID_Y_THRESHOLD. Otherwise the watchdog re-flags it next pass.
+--   3. UnregisterBot from ScoringService when we permanently give up so the
+--      scoreboard doesn't show a ghost slot.
 rebuildBot = function(oldBot: Model)
 	local name = oldBot.Name
 	-- Preserve team across rebuild so a bot stays loyal to its side after
@@ -626,31 +655,80 @@ rebuildBot = function(oldBot: Model)
 			break
 		end
 	end
-	if not oldIdx then return end
+	-- Always tear down the old model + service state FIRST, regardless of
+	-- whether we can build a replacement. Previously we early-returned on
+	-- `not oldIdx` BEFORE Destroy(), which left the corpse rotting in
+	-- Workspace and (with its frozen position attribute) confusing the
+	-- watchdog if it ever scanned children directly.
 	BotAnimator.Unregister(oldBot)
 	botState[oldBot] = nil
 	botMuzzle[oldBot] = nil
 	lastBehaviorAt[oldBot] = nil
 	teamSvc().UnassignBot(oldBot)
 	botTeam[oldBot] = nil
-	oldBot:Destroy()
+	if oldBot.Parent then
+		oldBot:Destroy()
+	end
+	if not oldIdx then
+		-- Stale rebuild call (e.g. clearBots ran while a delayed task waited)
+		-- — old model is destroyed, nothing to do.
+		return
+	end
+	-- Pull the stale reference out of `bots` immediately. We'll re-insert
+	-- only after a successful + validated rebuild.
+	table.remove(bots, oldIdx)
 
+	-- If we've already given up on this name (too many void rescues), do not
+	-- attempt to bring it back this match. The bot is gone for good.
+	if voidGaveUp[name] then
+		ScoringService.UnregisterBot(name)
+		return
+	end
+
+	-- Pick a spawn. If none available (arena not built, map swap in flight,
+	-- etc.) fall back to a hardcoded safe position instead of bailing out.
+	-- Bailing without a replacement is what caused player slots to shrink
+	-- mid-match.
 	local spawns = getArenaSpawnPoints()
-	if #spawns == 0 then return end
-	local sp = spawns[math.random(#spawns)]
+	local targetPos: Vector3
+	if #spawns > 0 then
+		local sp = spawns[math.random(#spawns)]
+		targetPos = sp.Position + Vector3.new(0, 5, 0)
+	else
+		warn(string.format(
+			"[DeathmatchBot] rebuildBot: no arena spawns for %s — using fallback %s",
+			name, tostring(FALLBACK_SPAWN_POS)
+		))
+		targetPos = FALLBACK_SPAWN_POS
+	end
+	-- Reject any spawn that would itself drop the bot into the void.
+	if targetPos.Y < VOID_Y_THRESHOLD then
+		warn(string.format(
+			"[DeathmatchBot] rebuildBot: chosen spawn pos %s is below void threshold; using fallback",
+			tostring(targetPos)
+		))
+		targetPos = FALLBACK_SPAWN_POS
+	end
+	local targetCF = CFrame.new(targetPos)
 
 	local rebuildTeam: DMTeams.TeamId = preservedTeam or pickBotTeam()
 	local colors = TEAM_BOT_COLORS[rebuildTeam]
 	local okBuild, botOrErr = pcall(BotModel.Build, name, BOT_HEALTH, colors)
 	if not okBuild then
 		warn(string.format("[DeathmatchBot] rebuildBot: Build failed for %s: %s", name, tostring(botOrErr)))
+		-- Build failure is unrecoverable — escalate the void counter so the
+		-- watchdog doesn't keep trying.
+		voidRescueAttempts[name] = (voidRescueAttempts[name] or 0) + 1
+		if (voidRescueAttempts[name] or 0) >= VOID_RESCUE_MAX_ATTEMPTS then
+			voidGaveUp[name] = true
+			ScoringService.UnregisterBot(name)
+		end
 		return
 	end
 	local bot: Model = botOrErr :: Model
 	-- Use the proven Parent → CFrame → PivotTo pattern (see placeBotAt
 	-- comment above for why PivotTo-before-Parent was unreliable).
 	local hrp = bot:FindFirstChild("HumanoidRootPart") :: BasePart?
-	local targetCF = sp.CFrame + Vector3.new(0, 5, 0)
 	if hrp then
 		hrp.CFrame = targetCF
 	end
@@ -658,7 +736,30 @@ rebuildBot = function(oldBot: Model)
 	pcall(function()
 		bot:PivotTo(targetCF)
 	end)
-	bots[oldIdx] = bot
+
+	-- Verify the new model actually exists in Workspace at a sane Y BEFORE
+	-- registering it in `bots`. If it's somehow already below the void
+	-- threshold, log loudly and give up instead of feeding the watchdog loop.
+	local newHrp = bot:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not newHrp or not bot.Parent or newHrp.Position.Y < VOID_Y_THRESHOLD then
+		warn(string.format(
+			"[DeathmatchBot] rebuildBot: fresh bot %s failed Y validation (parent=%s, HRP=%s, y=%s) — discarding",
+			name,
+			tostring(bot.Parent ~= nil),
+			tostring(newHrp ~= nil),
+			tostring(newHrp and newHrp.Position.Y or "n/a")
+		))
+		voidRescueAttempts[name] = (voidRescueAttempts[name] or 0) + 1
+		if (voidRescueAttempts[name] or 0) >= VOID_RESCUE_MAX_ATTEMPTS then
+			voidGaveUp[name] = true
+			ScoringService.UnregisterBot(name)
+		end
+		if bot.Parent then bot:Destroy() end
+		return
+	end
+
+	-- Validated — safe to register the new model.
+	table.insert(bots, bot)
 	botState[bot] = newAIState()
 	-- Re-register with the team service using the preserved team. AssignBot
 	-- handles the SetAttribute + tint + broadcast.
@@ -743,6 +844,33 @@ local function clearBots()
 	table.clear(lastBehaviorAt)
 	table.clear(botMuzzle)
 	table.clear(botTeam)
+	table.clear(voidRescueAttempts)
+	table.clear(voidGaveUp)
+end
+
+-- Drop any stale entries from `bots` that no longer reference a live Workspace
+-- model with a HumanoidRootPart. The watchdog + AI tick both iterate `bots`,
+-- and a zombie reference (Model destroyed but pointer still in the table)
+-- previously caused the watchdog to fire forever on bots that no longer
+-- existed — Roblox keeps Position semantics on destroyed BaseParts in some
+-- cases (frozen at last replicated position which can be -1000000 if it
+-- already fell out of the world). This runs at the top of every fill pass
+-- and also right after a void-rescue rebuild attempt so we never iterate
+-- garbage.
+local function pruneStaleBots()
+	local kept: { Model } = {}
+	for _, bot in bots do
+		if not bot or not bot.Parent then continue end
+		local hrp = bot:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if not hrp then continue end
+		table.insert(kept, bot)
+	end
+	-- Replace contents of `bots` in-place so the watchdog/AI loop iterators
+	-- that captured the table reference still see updated state.
+	table.clear(bots)
+	for _, b in kept do
+		table.insert(bots, b)
+	end
 end
 
 -- Position a freshly built bot at the given target CFrame. This is the
@@ -799,6 +927,11 @@ local function resolvePrivateLobbyConfig(): (boolean, number)
 end
 
 local function spawnBotsToFill()
+	-- Prune stale entries up front so any subsequent log/iteration sees a
+	-- clean table. clearBots below will wipe everything anyway, but the
+	-- prune ensures we don't crash trying to UnregisterBot on a nil model
+	-- or iterate a destroyed instance. Cheap insurance.
+	pruneStaleBots()
 	-- In private servers: honor the host's WithBots/MaxPlayers settings.
 	-- If WithBots=false → skip entirely (same legacy "private = no bots"
 	-- behavior). Otherwise treat private just like a public match but with
@@ -936,29 +1069,103 @@ end
 -- pass (~3Hz) for movement decisions / strafe re-rolls. Splitting keeps the
 -- shooting reactive without re-pathing every loop.
 --
--- Void watchdog: every 2 seconds, scan bots and force-rebuild any whose HRP
+-- Void watchdog: every 5 seconds, scan bots and force-rebuild any whose HRP
 -- has dropped below y=-100. Roblox's FallenPartsDestroyHeight should kill
 -- characters that fall too far, but ModelStreamingMode=Persistent overrides
 -- that — so void-fallen bots stay parented at y=-1000000 with HP intact,
 -- which causes findNearestTarget to still consider them (and the player to
--- "feel alone" because half the bots are off-map). The watchdog kicks them
--- through rebuildBot, which respawns them at a fresh arena spawn point.
+-- "feel alone" because half the bots are off-map). The watchdog calls
+-- rebuildBot directly so we don't depend on Humanoid:Died firing reliably
+-- when the bot is already in the void (it sometimes doesn't fire if the
+-- humanoid is already dead from FallenPartsDestroyHeight rules).
+--
+-- Loop-protection: per bot NAME, track void-rescue attempts. After
+-- VOID_RESCUE_MAX_ATTEMPTS consecutive rescues that don't stick, give up on
+-- that name entirely — unregister from ScoringService and never try to
+-- rebuild it again this match. This prevents the "same bots void every 2s
+-- forever" log flood when an arena map has no valid spawns above ground.
+--
+-- Frequency bumped from 2s → 5s so Roblox physics + replication has time to
+-- settle a fresh respawn before we re-check it. A new bot whose HRP arrives
+-- at y=50, then briefly dips to y=-10 mid-fall during physics simulation,
+-- could otherwise trip the watchdog on the next 2s tick.
 task.spawn(function()
 	while true do
-		task.wait(2)
+		task.wait(5)
 		pcall(function()
-			for _, bot in bots do
-				if not bot.Parent then continue end
+			-- Snapshot the bots table first because rebuildBot mutates it
+			-- (table.remove + table.insert). Iterating + mutating in-place
+			-- can skip entries.
+			local snapshot: { Model } = {}
+			for _, b in bots do table.insert(snapshot, b) end
+			for _, bot in snapshot do
+				if not bot or not bot.Parent then continue end
 				local hrp = bot:FindFirstChild("HumanoidRootPart") :: BasePart?
-				if hrp and hrp.Position.Y < -100 then
-					print(string.format(
-						"[DEBUG-BOT] Void-fallen bot %s @ y=%d — forcing rebuild",
-						bot.Name, math.floor(hrp.Position.Y)
-					))
-					-- Force respawn by killing the Humanoid; Died hook will rebuild.
-					local hum = bot:FindFirstChildOfClass("Humanoid")
-					if hum then hum.Health = 0 end
+				if not hrp then continue end
+				if hrp.Position.Y >= -100 then continue end
+
+				local name = bot.Name
+				if voidGaveUp[name] then
+					-- Already given up on this name in an earlier pass —
+					-- ensure the corpse is gone so we don't keep flagging it.
+					BotAnimator.Unregister(bot)
+					botState[bot] = nil
+					botMuzzle[bot] = nil
+					lastBehaviorAt[bot] = nil
+					teamSvc().UnassignBot(bot)
+					botTeam[bot] = nil
+					ScoringService.UnregisterBot(name)
+					bot:Destroy()
+					pruneStaleBots()
+					continue
 				end
+
+				local attempts = (voidRescueAttempts[name] or 0) + 1
+				voidRescueAttempts[name] = attempts
+
+				-- Rich diagnostic so we can tell whether the arena is
+				-- actually present + populated when the rescue fires.
+				local arena = Workspace:FindFirstChild("ActiveArena")
+				local spawnsFolder = arena and arena:FindFirstChild("Spawns")
+				local spawnCount = 0
+				if spawnsFolder then
+					for _, c in spawnsFolder:GetChildren() do
+						if c:IsA("BasePart") then spawnCount += 1 end
+					end
+				end
+				print(string.format(
+					"[DEBUG-BOT] Void-fallen bot %s @ y=%d (attempt %d/%d) — parent=%s, Anchored=%s, ActiveArena=%s, spawns=%d",
+					name,
+					math.floor(hrp.Position.Y),
+					attempts, VOID_RESCUE_MAX_ATTEMPTS,
+					tostring(bot.Parent and bot.Parent.Name or "nil"),
+					tostring(hrp.Anchored),
+					tostring(arena ~= nil),
+					spawnCount
+				))
+
+				if attempts > VOID_RESCUE_MAX_ATTEMPTS then
+					-- Give up permanently on this name.
+					warn(string.format(
+						"[DeathmatchBot] Bot %s void-fell %d times — removing from match permanently",
+						name, attempts
+					))
+					voidGaveUp[name] = true
+					BotAnimator.Unregister(bot)
+					botState[bot] = nil
+					botMuzzle[bot] = nil
+					lastBehaviorAt[bot] = nil
+					teamSvc().UnassignBot(bot)
+					botTeam[bot] = nil
+					ScoringService.UnregisterBot(name)
+					bot:Destroy()
+					pruneStaleBots()
+					continue
+				end
+
+				-- Rebuild directly (don't rely on Humanoid:Died firing for
+				-- an already-void-fallen humanoid).
+				rebuildBot(bot)
 			end
 		end)
 	end

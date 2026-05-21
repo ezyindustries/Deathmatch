@@ -69,12 +69,20 @@ MatchStateController.stateColorKey = stateColorKey
 -- Round 7 (mobile shrink pass): mobile 170x28 -> 140x22, font micro,
 -- so the chip reads as a discreet header at iPhone 7 (666x374). Desktop
 -- retains 210x32 since it has plenty of room.
+-- Round 8 (multi-viewport audit): added ultra-mobile (vw < 600) branch so
+-- iPhone 4S (480x320) gets 120x20 chip. Breakpoint aligned to 900 (was 700)
+-- to match HealthController.refreshContainerLayout — both controllers now
+-- treat mobile identically, so the HP bar's matchHudH math never desyncs.
+local WIDTH_ULTRA = 120
 local WIDTH_MOBILE = 140
 local WIDTH_DESKTOP = 210
+local HEIGHT_ULTRA = 20
 local HEIGHT_MOBILE = 22
 local HEIGHT_DESKTOP = 32
-local MOBILE_BREAKPOINT = 700
+local ULTRA_BREAKPOINT = 600
+local MOBILE_BREAKPOINT = 900
 
+local DOT_SIZE_ULTRA = 5
 local DOT_SIZE_MOBILE = 6
 local DOT_SIZE_DESKTOP = 8
 local URGENT_THRESHOLD = 30  -- timer pulse begins
@@ -249,15 +257,19 @@ GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(refreshTopOffset)
 local function refreshSize()
 	local cam = Workspace.CurrentCamera
 	local vw = cam and cam.ViewportSize.X or 1920
+	local ultra = vw < ULTRA_BREAKPOINT
 	local mobile = vw < MOBILE_BREAKPOINT
-	if mobile then
-		container.Size = UDim2.fromOffset(WIDTH_MOBILE, HEIGHT_MOBILE)
+	local w, h, dotSize
+	if ultra then
+		w, h, dotSize = WIDTH_ULTRA, HEIGHT_ULTRA, DOT_SIZE_ULTRA
+	elseif mobile then
+		w, h, dotSize = WIDTH_MOBILE, HEIGHT_MOBILE, DOT_SIZE_MOBILE
 	else
-		container.Size = UDim2.fromOffset(WIDTH_DESKTOP, HEIGHT_DESKTOP)
+		w, h, dotSize = WIDTH_DESKTOP, HEIGHT_DESKTOP, DOT_SIZE_DESKTOP
 	end
-	-- Mobile drops dot + font to keep the chip readable but compact.
-	local dotSize = mobile and DOT_SIZE_MOBILE or DOT_SIZE_DESKTOP
+	container.Size = UDim2.fromOffset(w, h)
 	dot.Size = UDim2.fromOffset(dotSize, dotSize)
+	-- Mobile + ultra both drop to micro font; desktop uses caption for clarity.
 	local fontSize = mobile and UITheme.FontSize.micro or UITheme.FontSize.caption
 	stateLabel.TextSize = fontSize
 	arrowLabel.TextSize = fontSize

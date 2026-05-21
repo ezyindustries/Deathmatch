@@ -100,14 +100,24 @@ local function isMobile(): boolean
 	return vw < 900
 end
 
--- Box sizing constants (re-applied on viewport change)
+-- Box sizing constants (re-applied on viewport change). Ultra-mobile shrinks
+-- further to 26x36 (the 6-box row needs 6*26 + 5*3 = 171px which fits at
+-- iPhone 4S 480px viewport with margins).
 local DESKTOP_BOX_W, DESKTOP_BOX_H, DESKTOP_GAP = 40, 56, 8
 local MOBILE_BOX_W, MOBILE_BOX_H, MOBILE_GAP = 32, 44, 4
+local ULTRA_BOX_W, ULTRA_BOX_H, ULTRA_GAP = 26, 36, 3
 
 -- Resize panel + scale on viewport change. Mobile uses a 380x260 panel
 -- (per spec) plus a UIScale fallback for ultra-narrow viewports.
+-- Ultra-mobile (vw < 600) shrinks to a 300x220 panel — fits iPhone 4S 480x320
+-- with breathing room above the panel for the close X tap target.
 local function refreshLayout()
-	if isMobile() then
+	local cam = Workspace.CurrentCamera
+	local vw = cam and cam.ViewportSize.X or 1920
+	if vw < 600 then
+		panel.Size = UDim2.fromOffset(300, 220)
+		panelScale.Scale = 1
+	elseif vw < 900 then
 		panel.Size = UDim2.fromOffset(380, 260)
 		panelScale.Scale = 1
 	else
@@ -308,15 +318,24 @@ for i = 1, CODE_LEN do
 	end)
 end
 
--- Resize boxes + gap on viewport change.
+-- Resize boxes + gap on viewport change. Ultra-mobile (vw < 600) uses 26x36
+-- so 6 boxes + 5 gaps fit comfortably inside the 300x220 ultra-mobile panel.
 local function refreshBoxes()
-	local mobile = isMobile()
-	local w, h, gap = if mobile then MOBILE_BOX_W else DESKTOP_BOX_W,
-		if mobile then MOBILE_BOX_H else DESKTOP_BOX_H,
-		if mobile then MOBILE_GAP else DESKTOP_GAP
+	local cam = Workspace.CurrentCamera
+	local vw = cam and cam.ViewportSize.X or 1920
+	local ultra = vw < 600
+	local mobile = vw < 900
+	local w, h, gap, fontSize
+	if ultra then
+		w, h, gap, fontSize = ULTRA_BOX_W, ULTRA_BOX_H, ULTRA_GAP, UITheme.FontSize.bodyLg
+	elseif mobile then
+		w, h, gap, fontSize = MOBILE_BOX_W, MOBILE_BOX_H, MOBILE_GAP, UITheme.FontSize.h3
+	else
+		w, h, gap, fontSize = DESKTOP_BOX_W, DESKTOP_BOX_H, DESKTOP_GAP, UITheme.FontSize.h2
+	end
 	for _, b in boxes do
 		b.Size = UDim2.fromOffset(w, h)
-		b.TextSize = if mobile then UITheme.FontSize.h3 else UITheme.FontSize.h2
+		b.TextSize = fontSize
 	end
 	boxesLayout.Padding = UDim.new(0, gap)
 end

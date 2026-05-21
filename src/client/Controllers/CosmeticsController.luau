@@ -70,12 +70,21 @@ panelCorner.Parent = panel
 -- old fixed 800x540 panel extended off-screen — cutting off the top + bottom
 -- (so tabs and close buttons became unreachable). Clamp to a fraction of the
 -- live viewport and reapply whenever the viewport changes (e.g. orientation).
+-- Multi-viewport audit added a panel UIScale so ultra-mobile (vw<600) shrinks
+-- the 170x130 cosmetic cards proportionally instead of clipping inside a
+-- narrow grid container.
+local panelScale = Instance.new("UIScale")
+panelScale.Scale = 1
+panelScale.Parent = panel
 local function refreshPanelSize()
 	local cam = Workspace.CurrentCamera
 	local v = cam and cam.ViewportSize or Vector2.new(800, 540)
 	local w = math.min(800, v.X * 0.95)
 	local h = math.min(540, v.Y * 0.92)
 	panel.Size = UDim2.fromOffset(w, h)
+	if v.X < 600 then panelScale.Scale = 0.75
+	elseif v.X < 900 then panelScale.Scale = 0.9
+	else panelScale.Scale = 1 end
 end
 refreshPanelSize()
 if Workspace.CurrentCamera then

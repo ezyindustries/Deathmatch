@@ -14,10 +14,20 @@
 -- list of fake sessions so the UI can be developed/tested without a live game.
 
 local MemoryStoreService = game:GetService("MemoryStoreService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared.Modules.Remotes)
+
+-- Lazy require to dodge load-order issues (MatchStateService may not be
+-- initialized yet when this module first runs).
+local function getMatchStateService()
+	local ok, mss = pcall(require, script.Parent.MatchStateService)
+	if ok then return mss end
+	return nil
+end
 
 local SessionDirectory = {}
 
@@ -41,9 +51,63 @@ local cachedRows: { SessionRow } = {}
 local cachedAt: number = 0
 local cacheUsingStub: boolean = false
 
+-- Build a row representing THIS server, based on live MatchStateService data.
+-- Returns nil if this server is private (PrivateServerId set) — private servers
+-- should never appear in the public browser.
+--
+-- Used in two places:
+--   1. As fallback when MemoryStore is unavailable (Studio Test) — without this
+--      a developer testing locally would see ZERO servers in the browser even
+--      though the very server they're on is fully joinable.
+--   2. Always merged in alongside MemoryStore results so a developer with two
+--      Studio Test sessions open (or a brand-new published server whose
+--      MemoryStore entry hasn't yet propagated) still sees themselves.
+local function buildLocalRow(): SessionRow?
+	-- Private/VIP servers never advertise.
+	if game.PrivateServerId ~= nil and game.PrivateServerId ~= "" then
+		return nil
+	end
+	local mss = getMatchStateService()
+	local state = "LOBBY"
+	local gamemode: string? = "deathmatch"
+	if mss then
+		local ok, payload = pcall(mss.GetState)
+		if ok and typeof(payload) == "table" then
+			if typeof(payload.state) == "string" then state = payload.state end
+			if typeof(payload.gamemode) == "string" then gamemode = payload.gamemode end
+		end
+	end
+	-- Derive mapId from ActiveArena attribute (mirrors SessionAdvertiser).
+	local mapId = "lobby"
+	local arena = Workspace:FindFirstChild("ActiveArena")
+	if arena then
+		local id = arena:GetAttribute("mapId")
+		if typeof(id) == "string" and id ~= "" then
+			mapId = id
+		end
+	end
+	-- JobId is "" in Studio Test. We still want to advertise the local server,
+	-- but we need *something* unique-looking. Use a stable Studio sentinel.
+	local jobId = game.JobId
+	if jobId == nil or jobId == "" then
+		jobId = "studio-local-session"
+	end
+	return {
+		jobId = jobId,
+		mapId = mapId,
+		state = state,
+		gamemode = gamemode,
+		players = #Players:GetPlayers(),
+		max = 21,
+		kind = "public",
+		at = os.time(),
+	}
+end
+
 -- Fake stub list for Studio Test where MemoryStore is unavailable. Lets the
 -- client UI render real-looking rows so the developer can iterate on layout
--- without needing a published game.
+-- without needing a published game. The LOCAL server row is added separately
+-- via buildLocalRow() so it always shows up first (and is actually joinable).
 local function buildStubRows(): { SessionRow }
 	local now = os.time()
 	return {
@@ -138,6 +202,22 @@ local function fetchFromMemoryStore(): ({ SessionRow }, boolean)
 	return rows, true
 end
 
+-- Merge the LOCAL server's row into a fetched list, replacing any existing
+-- entry with the same jobId (because MemoryStore's view of us may be stale by
+-- up to 8s). Skip if we're a private server. Always insert at the front so
+-- the user's own server is the first thing they see in the browser.
+local function mergeLocalRow(rows: { SessionRow }): { SessionRow }
+	local local_ = buildLocalRow()
+	if not local_ then return rows end
+	local out: { SessionRow } = { local_ }
+	for _, r in rows do
+		if r.jobId ~= local_.jobId then
+			table.insert(out, r)
+		end
+	end
+	return out
+end
+
 local function refresh(): { SessionRow }
 	local now = os.clock()
 	if (now - cachedAt) < CACHE_TTL and #cachedRows > 0 then
@@ -146,14 +226,19 @@ local function refresh(): { SessionRow }
 	local rows, ok = fetchFromMemoryStore()
 	if not ok then
 		-- MemoryStore unavailable (Studio Test). Return stub data so UI work
-		-- isn't blocked by infrastructure. Cache it too so we don't spam
-		-- failing pcalls every request.
-		cachedRows = buildStubRows()
+		-- isn't blocked by infrastructure, PLUS the local server row so a
+		-- developer running solo Studio sees their own server as joinable.
+		-- Cache the merged result so we don't spam failing pcalls.
+		cachedRows = mergeLocalRow(buildStubRows())
 		cachedAt = now
 		cacheUsingStub = true
 		return cachedRows
 	end
-	cachedRows = rows
+	-- MemoryStore worked. Still merge in the LOCAL row because:
+	--   * Our own MemoryStore entry takes up to PUBLISH_INTERVAL (8s) to refresh,
+	--     so a player who just hit REFRESH would see a stale snapshot of us.
+	--   * In a brand-new server the first publish may not have landed yet.
+	cachedRows = mergeLocalRow(rows)
 	cachedAt = now
 	cacheUsingStub = false
 	return cachedRows
