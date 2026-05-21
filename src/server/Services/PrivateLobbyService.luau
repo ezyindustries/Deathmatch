@@ -352,26 +352,44 @@ local privateServerCode: string? = nil
 -- in the lobby sees a live roster + the shared code.
 local memberReady: { [number]: boolean } = {}
 
+-- Resolve who the "host" is for the current server. In a published
+-- reserved server this comes from TeleportData (stamped on Workspace).
+-- In Studio test mode (or any unset case) we fall back to "first player
+-- in the server" so the lobby still has a clear host who can click START.
+local function getHostUserId(): number?
+	local attrHost = Workspace:GetAttribute("PrivateServerHostUserId")
+	if typeof(attrHost) == "number" then return attrHost end
+	local players = Players:GetPlayers()
+	if #players > 0 then return players[1].UserId end
+	return nil
+end
+
 local function buildMembersPayload(): { { userId: number, name: string, ready: boolean } }
 	local out: { { userId: number, name: string, ready: boolean } } = {}
+	local hostId = getHostUserId()
 	for _, p in Players:GetPlayers() do
+		-- Host is implicitly ready (they're the one driving the lobby — they
+		-- click START rather than READY). Non-host members must toggle ready
+		-- explicitly via PrivateLobbyReady.
+		local isHost = hostId == p.UserId
 		table.insert(out, {
 			userId = p.UserId,
 			name = p.Name,
-			ready = memberReady[p.UserId] == true,
+			ready = isHost or memberReady[p.UserId] == true,
 		})
 	end
 	return out
 end
 
 local function broadcastLobbyUpdate()
-	if not IS_PRIVATE_SERVER_BOOT then return end
-	local hostUserId: number? = nil
-	local attrHost = Workspace:GetAttribute("PrivateServerHostUserId")
-	if typeof(attrHost) == "number" then hostUserId = attrHost end
+	-- Was gated on IS_PRIVATE_SERVER_BOOT — that hid the lobby state in
+	-- Studio test mode (where game.PrivateServerId is always ""), making
+	-- the START button stuck-disabled because clients never received the
+	-- members payload. Always broadcast: clients that aren't in a private
+	-- lobby just ignore (their UI keeps InPrivateServer=false visible state).
 	local payload = {
 		code = privateServerCode,
-		hostUserId = hostUserId,
+		hostUserId = getHostUserId(),
 		members = buildMembersPayload(),
 	}
 	pcall(function()
@@ -427,7 +445,10 @@ local function applyTeleportDataToWorkspace(player: Player)
 	end
 end
 
-if IS_PRIVATE_SERVER_BOOT then
+-- Always register the lobby handlers (gate removed). In Studio test the
+-- TeleportData / Workspace attr flow is inert but the member tracking +
+-- broadcasts still need to run so the START button can light up.
+do
 	Players.PlayerAdded:Connect(function(p: Player)
 		applyTeleportDataToWorkspace(p)
 		memberReady[p.UserId] = memberReady[p.UserId] == true
@@ -462,9 +483,10 @@ if IS_PRIVATE_SERVER_BOOT then
 	-- members ready. If gates pass, force-advance via MatchStateService.
 	pcall(function()
 		Remotes.PrivateLobbyStart.OnServerEvent:Connect(function(p: Player)
-			-- Caller must be the host (the player whose UserId matches the
-			-- stored hostUserId attribute set on Workspace at receive-side).
-			local hostId = Workspace:GetAttribute("PrivateServerHostUserId")
+			-- Caller must be the host. In Studio test (no Workspace attr set
+			-- because there's no real teleport), fall back to "first player
+			-- in the server is the host" so the flow still works.
+			local hostId = getHostUserId()
 			if hostId and hostId ~= p.UserId then
 				print(string.format(
 					"[PrivateLobby] %s tried to start match but is not host (host=%s)",
@@ -493,8 +515,11 @@ if IS_PRIVATE_SERVER_BOOT then
 				warn("[PrivateLobby] MatchStateService unavailable")
 				return
 			end
+			-- Only advance from LOBBY (don't double-trigger if cycle is mid-match).
+			-- Accept ENDING too — host clicking START after a round ends should
+			-- kick a fresh cycle without waiting for the auto LOBBY transition.
 			local current = MatchStateService.GetCurrentState()
-			if current ~= "LOBBY" then
+			if current ~= "LOBBY" and current ~= "ENDING" then
 				print(string.format(
 					"[PrivateLobby] Start ignored — match already in state %s",
 					tostring(current)
