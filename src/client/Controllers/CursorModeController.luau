@@ -178,7 +178,12 @@ player.CharacterAdded:Connect(function()
 end)
 
 pauseSignal.Event:Connect(function(opened: boolean?)
-	-- Pause menu needs free cursor to be clickable in first-person.
+	-- Pause menu needs free cursor to be clickable in first-person —
+	-- but ONLY on desktop. On mobile there's no mouse cursor concept;
+	-- touch input goes through Modal=true backdrop directly. Entering
+	-- cursor mode on mobile flashes the "🖱 CURSOR MODE" hint that the
+	-- user can't dismiss.
+	if isMobileVP() then return end
 	if opened then
 		enterCursorMode()
 	else

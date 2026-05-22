@@ -623,9 +623,9 @@ meleeChip.MouseButton1Click:Connect(function()
 	Remotes.SwitchWeapon:FireServer("melee")
 end)
 
--- Re-layout slot panel + chips on viewport change (e.g. Studio Device
--- Emulator switching between iPhone 7 ↔ desktop). Recomputes compact
--- mode and re-applies the chip widths + panel offset.
+-- Re-layout slot panel + chips on viewport change. On mobile we anchor the
+-- panel BOTTOM-CENTER (above the joystick + RUN button on the left, away
+-- from the jump button on the right). On desktop, bottom-right stays.
 local function _reflowSlotPanel()
 	local compact = _isCompactNow()
 	local chipW = compact and 64 or 100
@@ -633,14 +633,24 @@ local function _reflowSlotPanel()
 	local gap = compact and 4 or 4
 	local panelW = padX * 2 + chipW * 3 + gap * 2
 	local panelH = compact and 32 or 64
-	local rightInset = compact and 80 or 20
 	slotPanel.Size = UDim2.new(0, panelW, 0, panelH)
-	slotPanel.Position = UDim2.new(1, -rightInset, 1, -20)
+	if compact then
+		-- Mobile: bottom-CENTER. Roblox jump button hugs bottom-right
+		-- and the joystick hugs bottom-left; the gap between them is
+		-- the only safe spot for a wide hotbar.
+		slotPanel.AnchorPoint = Vector2.new(0.5, 1)
+		slotPanel.Position = UDim2.new(0.5, 0, 1, -12)
+	else
+		-- Desktop: bottom-right (unchanged).
+		slotPanel.AnchorPoint = Vector2.new(1, 1)
+		slotPanel.Position = UDim2.new(1, -20, 1, -20)
+	end
 	for i, chip in { primaryChip, secondaryChip, meleeChip } do
 		chip.Size = UDim2.new(0, chipW, 1, -(compact and 8 or 16))
 		chip.Position = UDim2.new(0, padX + (chipW + gap) * (i - 1), 0, compact and 4 or 8)
 	end
 end
+_reflowSlotPanel() -- apply at script load (in case _isCompactNow returns true initially)
 if workspace.CurrentCamera then
 	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(_reflowSlotPanel)
 end
