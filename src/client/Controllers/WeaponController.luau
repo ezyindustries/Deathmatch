@@ -514,12 +514,14 @@ feedbackLabel.Parent = screenGui
 local _slotCam = workspace.CurrentCamera
 local SLOT_IS_COMPACT = UserInputService.TouchEnabled and _slotCam and _slotCam.ViewportSize.X < 900
 -- Chip dimensions and panel layout vary by viewport mode.
-local CHIP_W = SLOT_IS_COMPACT and 80 or 130
-local CHIP_PAD_X = SLOT_IS_COMPACT and 6 or 8 -- left padding for first chip
-local CHIP_GAP = SLOT_IS_COMPACT and 6 or 4 -- desktop preserves original 4px gap (orig: chip2 x=142 = 8+130+4)
+-- 3-chip hotbar (primary / secondary / melee). Chips shrunk vs the old
+-- 2-chip layout so the row still fits the same panel width.
+local CHIP_W = SLOT_IS_COMPACT and 64 or 100
+local CHIP_PAD_X = SLOT_IS_COMPACT and 4 or 6 -- left padding for first chip
+local CHIP_GAP = SLOT_IS_COMPACT and 4 or 4 -- gap between chips
 -- Total panel width: 2 chips + gap + side padding. Desktop = 8+130+4+130+8 = 280
 -- (matches original). Compact = 6+80+6+80+6 = 178 (down from 224).
-local SLOT_PANEL_W = CHIP_PAD_X * 2 + CHIP_W * 2 + CHIP_GAP
+local SLOT_PANEL_W = CHIP_PAD_X * 2 + CHIP_W * 3 + CHIP_GAP * 2
 local SLOT_PANEL_H = SLOT_IS_COMPACT and 32 or 64
 -- Mobile: keep bottom-right anchor but shift left by 80px so Roblox's default
 -- jump button at the corner is unobstructed.
@@ -603,12 +605,16 @@ end
 local CHIP_PAD_Y = SLOT_IS_COMPACT and 4 or 8
 local primaryChip, _, primaryLabel = makeSlotChip("1", UDim2.new(0, CHIP_PAD_X, 0, CHIP_PAD_Y), Color3.fromRGB(220, 100, 60))
 local secondaryChip, _, secondaryLabel = makeSlotChip("2", UDim2.new(0, CHIP_PAD_X + CHIP_W + CHIP_GAP, 0, CHIP_PAD_Y), Color3.fromRGB(60, 140, 220))
+local meleeChip, _, meleeLabel = makeSlotChip("3", UDim2.new(0, CHIP_PAD_X + (CHIP_W + CHIP_GAP) * 2, 0, CHIP_PAD_Y), Color3.fromRGB(180, 180, 60))
 
 primaryChip.MouseButton1Click:Connect(function()
 	Remotes.SwitchWeapon:FireServer("primary")
 end)
 secondaryChip.MouseButton1Click:Connect(function()
 	Remotes.SwitchWeapon:FireServer("secondary")
+end)
+meleeChip.MouseButton1Click:Connect(function()
+	Remotes.SwitchWeapon:FireServer("melee")
 end)
 
 -- Ammo display (above slot panel).
@@ -720,24 +726,32 @@ end
 local function updateSlotPanel()
 	local primaryName = "—"
 	local secondaryName = "—"
+	local meleeName = "—"
 	if equippedSlotName == "primary" and equippedId and WeaponConfig[equippedId] then
 		primaryName = WeaponConfig[equippedId].displayName
 	end
 	if equippedSlotName == "secondary" and equippedId and WeaponConfig[equippedId] then
 		secondaryName = WeaponConfig[equippedId].displayName
 	end
+	if equippedSlotName == "melee" and equippedId and WeaponConfig[equippedId] then
+		meleeName = WeaponConfig[equippedId].displayName
+	end
 	-- Fallback: show defaults if no equip yet for that slot
 	if primaryName == "—" and WeaponConfig.rifle then primaryName = WeaponConfig.rifle.displayName end
 	if secondaryName == "—" and WeaponConfig.pistol then secondaryName = WeaponConfig.pistol.displayName end
+	if meleeName == "—" and WeaponConfig.knife then meleeName = WeaponConfig.knife.displayName end
 
 	primaryLabel.Text = primaryName
 	secondaryLabel.Text = secondaryName
+	meleeLabel.Text = meleeName
 
 	local activePrimary = equippedSlotName == "primary"
 	local activeSecondary = equippedSlotName == "secondary"
+	local activeMelee = equippedSlotName == "melee"
 	-- Brighten active slot
 	primaryChip.BackgroundColor3 = activePrimary and Color3.fromRGB(75, 50, 35) or Color3.fromRGB(28, 32, 44)
 	secondaryChip.BackgroundColor3 = activeSecondary and Color3.fromRGB(35, 55, 80) or Color3.fromRGB(28, 32, 44)
+	meleeChip.BackgroundColor3 = activeMelee and Color3.fromRGB(70, 70, 35) or Color3.fromRGB(28, 32, 44)
 	local pStroke = primaryChip:FindFirstChildOfClass("UIStroke")
 	if pStroke then
 		pStroke.Transparency = activePrimary and 0 or 0.4
@@ -747,6 +761,11 @@ local function updateSlotPanel()
 	if sStroke then
 		sStroke.Transparency = activeSecondary and 0 or 0.4
 		sStroke.Thickness = activeSecondary and 2.5 or 1.5
+	end
+	local mStroke = meleeChip:FindFirstChildOfClass("UIStroke")
+	if mStroke then
+		mStroke.Transparency = activeMelee and 0 or 0.4
+		mStroke.Thickness = activeMelee and 2.5 or 1.5
 	end
 	slotPanel.Visible = equippedSlotName ~= nil
 end
@@ -1605,10 +1624,13 @@ if isTouch then
 	-- top offset Space.l (16) ≈ 146. Add Space.m (12) gap → top = 158.
 	local _btnColCam = workspace.CurrentCamera
 	local _isMobile = _btnColCam and _btnColCam.ViewportSize.X < 900
+	-- 2 buttons (ADS + RELOAD). SWAP removed — weapon switch is now via the
+	-- 3-chip hotbar at the bottom (primary/secondary/melee) so the SWAP
+	-- button became redundant.
 	local COL_BTN_H = _isMobile and 38 or 44
 	local COL_BTN_GAP = _isMobile and 7 or 8
 	local COL_W = _isMobile and 38 or 44
-	local COL_H = COL_BTN_H * 3 + COL_BTN_GAP * 2 -- mobile=128, desktop=148
+	local COL_H = COL_BTN_H * 2 + COL_BTN_GAP * 1 -- mobile=83, desktop=96
 	local btnCol = Instance.new("Frame")
 	btnCol.Name = "MobileBtnCol"
 	if _isMobile then
@@ -1653,21 +1675,8 @@ if isTouch then
 	styleBtn(reloadBtn)
 	reloadBtn.MouseButton1Click:Connect(tryReload)
 
-	-- Weapon switch (slot cycle)
-	local switchBtn = Instance.new("TextButton")
-	switchBtn.Size = UDim2.new(1, 0, 0, COL_BTN_H)
-	switchBtn.Position = UDim2.new(0, 0, 0, (COL_BTN_H + COL_BTN_GAP) * 2)
-	switchBtn.Text = "SWAP"
-	switchBtn.Parent = btnCol
-	styleBtn(switchBtn)
-	-- Cycle through slots: primary → secondary → melee → primary
-	switchBtn.MouseButton1Click:Connect(function()
-		local order = { "primary", "secondary", "melee" }
-		local currentIdx = 1
-		for i, s in order do if s == equippedSlotName then currentIdx = i; break end end
-		local nextSlot = order[(currentIdx % #order) + 1]
-		Remotes.SwitchWeapon:FireServer(nextSlot)
-	end)
+	-- (SWAP button removed — weapon switching now uses the 3-chip hotbar
+	-- at the bottom of the screen: [1 AK] [2 Glock] [3 Knife])
 
 	-- ===== SPRINT TOGGLE (bottom-LEFT, ABOVE the on-screen joystick) =====
 	-- Round 7 mobile shrink: 44->38, font 9. Position keeps the same -160

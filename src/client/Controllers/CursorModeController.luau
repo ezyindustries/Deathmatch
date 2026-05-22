@@ -58,9 +58,17 @@ hintLabel.TextSize = 13
 hintLabel.TextColor3 = Color3.fromRGB(180, 220, 255)
 hintLabel.Text = "🖱 CURSOR MODE — Alt to lock back"
 
--- Persistent top-right hint: "ALT for cursor" — desktop-only (no keyboard ALT on touch).
--- Viewport-width check is robust for Studio Device Emulator (which keeps MouseEnabled=true).
-local isTouchOnly = UserInputService.TouchEnabled and Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize.X < 900
+-- Persistent top-right hint: "ALT for cursor" — DESKTOP-ONLY. Mobile has no
+-- physical ALT key so the entire cursor-mode feature is useless there.
+-- Gate purely on viewport width (vw < 900 = mobile) to match the rest of
+-- the codebase's mobile detection — TouchEnabled is unreliable in Studio
+-- Device Emulator (always true with MouseEnabled also true).
+local function isMobileVP(): boolean
+	local cam = Workspace.CurrentCamera
+	local vw = cam and cam.ViewportSize.X or 1920
+	return vw < 900
+end
+local isTouchOnly = isMobileVP()
 local persistentHint = Instance.new("Frame")
 persistentHint.Size = UDim2.new(0, 160, 0, 28)
 persistentHint.AnchorPoint = Vector2.new(1, 0)
@@ -91,6 +99,14 @@ persistentLabel.TextColor3 = Color3.fromRGB(220, 230, 245)
 persistentLabel.Text = "ALT for cursor"
 persistentLabel.Parent = persistentHint
 hintLabel.Parent = hint
+
+-- Re-hide/show the hint when viewport changes (rotation, Studio device-emulator
+-- switching). Mobile = always hidden, desktop = always visible.
+if Workspace.CurrentCamera then
+	Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+		persistentHint.Visible = not isMobileVP()
+	end)
+end
 
 local function enterCursorMode()
 	if isCursorMode then
