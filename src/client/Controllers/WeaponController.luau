@@ -511,8 +511,14 @@ feedbackLabel.Parent = screenGui
 -- (Studio Device Emulator keeps MouseEnabled=true so we use width check).
 -- Round 7 (mobile shrink): chips 100->80, panel height 48->32. Keeps the
 -- hotbar discreet at iPhone 7 instead of dominating the bottom row.
-local _slotCam = workspace.CurrentCamera
-local SLOT_IS_COMPACT = UserInputService.TouchEnabled and _slotCam and _slotCam.ViewportSize.X < 900
+-- Compact mode reactive to viewport changes. TouchEnabled is unreliable in
+-- Studio Device Emulator (always true even on desktop), so we gate purely
+-- on viewport width — same heuristic as the rest of the codebase.
+local function _isCompactNow(): boolean
+	local cam = workspace.CurrentCamera
+	return cam ~= nil and cam.ViewportSize.X < 900
+end
+local SLOT_IS_COMPACT = _isCompactNow()
 -- Chip dimensions and panel layout vary by viewport mode.
 -- 3-chip hotbar (primary / secondary / melee). Chips shrunk vs the old
 -- 2-chip layout so the row still fits the same panel width.
@@ -616,6 +622,28 @@ end)
 meleeChip.MouseButton1Click:Connect(function()
 	Remotes.SwitchWeapon:FireServer("melee")
 end)
+
+-- Re-layout slot panel + chips on viewport change (e.g. Studio Device
+-- Emulator switching between iPhone 7 ↔ desktop). Recomputes compact
+-- mode and re-applies the chip widths + panel offset.
+local function _reflowSlotPanel()
+	local compact = _isCompactNow()
+	local chipW = compact and 64 or 100
+	local padX = compact and 4 or 6
+	local gap = compact and 4 or 4
+	local panelW = padX * 2 + chipW * 3 + gap * 2
+	local panelH = compact and 32 or 64
+	local rightInset = compact and 80 or 20
+	slotPanel.Size = UDim2.new(0, panelW, 0, panelH)
+	slotPanel.Position = UDim2.new(1, -rightInset, 1, -20)
+	for i, chip in { primaryChip, secondaryChip, meleeChip } do
+		chip.Size = UDim2.new(0, chipW, 1, -(compact and 8 or 16))
+		chip.Position = UDim2.new(0, padX + (chipW + gap) * (i - 1), 0, compact and 4 or 8)
+	end
+end
+if workspace.CurrentCamera then
+	workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(_reflowSlotPanel)
+end
 
 -- Ammo display (above slot panel).
 -- Default position sits 20px from right, 92px from bottom. On mobile the
