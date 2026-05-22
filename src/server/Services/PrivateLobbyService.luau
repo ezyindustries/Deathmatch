@@ -471,9 +471,28 @@ do
 	-- Listen for client-side ready toggles (Remotes.PrivateLobbyReady fires
 	-- (bool)). We just record + rebroadcast — actual "start match" gating
 	-- happens in the PrivateLobbyStart handler below.
+	-- Hold the match-state cycle once we know a player is in lobby flow.
+	-- This makes the START button work in Studio test (where the public
+	-- server otherwise cycles freely through LOBBY→VOTING→...). One-shot.
+	local autoHoldFired = false
+	local function maybeHoldCycle()
+		if autoHoldFired then return end
+		autoHoldFired = true
+		pcall(function()
+			local MSS = require(script.Parent.MatchStateService)
+			MSS.HoldAutoAdvance(true)
+			-- Bring the cycle back to LOBBY so the host can choose when to
+			-- start. AdvanceTo is a hard set, fine to call from any state.
+			if MSS.GetCurrentState() ~= "LOBBY" then
+				MSS.AdvanceTo("LOBBY")
+			end
+			print("[PrivateLobby] Auto-held cycle at LOBBY for private lobby flow")
+		end)
+	end
 	pcall(function()
 		Remotes.PrivateLobbyReady.OnServerEvent:Connect(function(p: Player, ready: any)
 			memberReady[p.UserId] = ready == true
+			maybeHoldCycle()
 			broadcastLobbyUpdate()
 		end)
 	end)
@@ -515,11 +534,14 @@ do
 				warn("[PrivateLobby] MatchStateService unavailable")
 				return
 			end
-			-- Only advance from LOBBY (don't double-trigger if cycle is mid-match).
-			-- Accept ENDING too — host clicking START after a round ends should
-			-- kick a fresh cycle without waiting for the auto LOBBY transition.
+			-- Accept any state except active MATCH (where the host clicking
+			-- "start" doesn't make sense — combat is already running).
+			-- LOBBY/ENDING → AdvanceTo("VOTING") (full cycle).
+			-- VOTING → AdvanceTo("STARTING") (skip the map vote).
+			-- STARTING → ignore (match is about to start anyway).
+			-- MATCH → ignore (already mid-match).
 			local current = MatchStateService.GetCurrentState()
-			if current ~= "LOBBY" and current ~= "ENDING" then
+			if current == "MATCH" or current == "STARTING" then
 				print(string.format(
 					"[PrivateLobby] Start ignored — match already in state %s",
 					tostring(current)
@@ -527,13 +549,19 @@ do
 				return
 			end
 			print(string.format(
-				"[PrivateLobby] Host %s started match with %d members",
-				p.Name, #players
+				"[PrivateLobby] Host %s started match (was state=%s) with %d members",
+				p.Name, tostring(current), #players
 			))
-			-- Release the auto-advance hold so VOTING→STARTING→MATCH cycles
-			-- on their normal timers from here.
+			-- Release the auto-advance hold so the cycle flows normally
+			-- from whatever state we transition into.
 			MatchStateService.HoldAutoAdvance(false)
-			MatchStateService.AdvanceTo("VOTING")
+			if current == "VOTING" then
+				-- Skip ahead — host doesn't want to wait for vote timer.
+				MatchStateService.AdvanceTo("STARTING")
+			else
+				-- LOBBY / ENDING / anything else → fresh cycle through voting.
+				MatchStateService.AdvanceTo("VOTING")
+			end
 		end)
 	end)
 end
