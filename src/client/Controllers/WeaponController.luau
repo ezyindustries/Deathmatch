@@ -795,7 +795,12 @@ local function updateSlotPanel()
 		mStroke.Transparency = activeMelee and 0 or 0.4
 		mStroke.Thickness = activeMelee and 2.5 or 1.5
 	end
-	slotPanel.Visible = equippedSlotName ~= nil
+	-- Show the panel whenever the player has a character — even if no
+	-- weapon is currently equipped, the chips need to be tappable so the
+	-- player can switch slots. Was previously gated on equippedSlotName,
+	-- which left mobile players without a visible hotbar if the server
+	-- hadn't yet broadcast WeaponEquipped (e.g. before first MATCH spawn).
+	slotPanel.Visible = player.Character ~= nil
 end
 
 -- ============ Viewmodel ============
@@ -1956,7 +1961,19 @@ end
 if player.Character then
 	onCharacter(player.Character)
 end
-player.CharacterAdded:Connect(onCharacter)
+player.CharacterAdded:Connect(function(char: Model)
+	onCharacter(char)
+	-- Slot panel visibility is tied to character existence (so the chips
+	-- are tappable even before the server fires WeaponEquipped). Refresh
+	-- it immediately on character spawn.
+	updateSlotPanel()
+end)
+-- Also refresh on character REMOVING so the panel hides when player dies.
+player.CharacterRemoving:Connect(function()
+	updateSlotPanel()
+end)
+-- Initial refresh in case character already exists at script load.
+task.defer(updateSlotPanel)
 
 RunService.RenderStepped:Connect(function(dt: number)
 	-- Classic static crosshair: no bloom recovery loop needed.

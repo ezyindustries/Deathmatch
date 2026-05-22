@@ -46,6 +46,11 @@ screenGui.Name = "BotRadarHUD"
 screenGui.ResetOnSpawn = false
 screenGui.IgnoreGuiInset = true
 screenGui.DisplayOrder = 45
+-- HIDDEN per user request: radar was a diagnostic for the "bots not
+-- spawning" investigation. Bots render correctly now, so the radar adds
+-- clutter without value. Keep the controller code intact in case we need
+-- the debug tool back later — just disable the ScreenGui.
+screenGui.Enabled = false
 screenGui.Parent = playerGui
 
 -- Container: top-right column, BELOW the scoreboard cluster. Scoreboard mini
