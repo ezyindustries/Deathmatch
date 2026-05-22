@@ -540,7 +540,12 @@ slotPanel.Position = UDim2.new(1, -SLOT_PANEL_RIGHT_INSET, 1, -20)
 slotPanel.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
 slotPanel.BackgroundTransparency = 0.25
 slotPanel.BorderSizePixel = 0
-slotPanel.Visible = false
+-- Visible by default — the hotbar shows even before first weapon equip
+-- so mobile players can tap chips to switch slots immediately. Was
+-- gated on equippedSlotName / character but the trigger chain
+-- (CharacterAdded → onCharacter → updateSlotPanel) didn't fire
+-- reliably in all flows. Simpler to keep always-visible.
+slotPanel.Visible = true
 slotPanel.Parent = screenGui
 
 local slotCorner = Instance.new("UICorner")
@@ -805,12 +810,13 @@ local function updateSlotPanel()
 		mStroke.Transparency = activeMelee and 0 or 0.4
 		mStroke.Thickness = activeMelee and 2.5 or 1.5
 	end
-	-- Show the panel whenever the player has a character — even if no
-	-- weapon is currently equipped, the chips need to be tappable so the
-	-- player can switch slots. Was previously gated on equippedSlotName,
-	-- which left mobile players without a visible hotbar if the server
-	-- hadn't yet broadcast WeaponEquipped (e.g. before first MATCH spawn).
-	slotPanel.Visible = player.Character ~= nil
+	-- Always keep the hotbar visible (initialized true at declaration).
+	-- The chips are tappable even before first WeaponEquipped broadcast,
+	-- and there's no downside to showing them at the main menu either.
+	-- We only hide on Humanoid.Died (see the death handler below).
+	if not slotPanel.Visible then
+		slotPanel.Visible = true
+	end
 end
 
 -- ============ Viewmodel ============
