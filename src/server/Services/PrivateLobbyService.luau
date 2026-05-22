@@ -552,6 +552,20 @@ do
 				"[PrivateLobby] Host %s started match (was state=%s) with %d members",
 				p.Name, tostring(current), #players
 			))
+			-- Load characters for every member who doesn't have one yet.
+			-- Players sitting at the main menu have CharacterAutoLoads=false,
+			-- so without this manual LoadCharacter they'd stay in the menu
+			-- through STARTING and ArenaService.teleportAliveTo would skip
+			-- them (it requires character.Humanoid alive). The user-visible
+			-- bug was: "click START, nothing happens" — match advanced but
+			-- nobody got a character to play with.
+			for _, member in players do
+				if not member.Character then
+					pcall(function()
+						member:LoadCharacter()
+					end)
+				end
+			end
 			-- Release the auto-advance hold so the cycle flows normally
 			-- from whatever state we transition into.
 			MatchStateService.HoldAutoAdvance(false)

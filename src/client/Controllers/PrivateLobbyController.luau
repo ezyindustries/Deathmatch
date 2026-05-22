@@ -993,4 +993,18 @@ ClientSignals.Get("OpenPrivateLobby").Event:Connect(function()
 	end
 end)
 
+-- Close the lobby modal automatically once the match actually starts.
+-- Host clicks START → server AdvanceTo("STARTING"/"VOTING") → state
+-- broadcasts to all clients → modal dismisses + PRIVATE badge stays
+-- (still in private server, just not in lobby anymore).
+Remotes.MatchStateChanged.OnClientEvent:Connect(function(payload: any)
+	if type(payload) ~= "table" then return end
+	local s = payload.state
+	if s == "STARTING" or s == "MATCH" or s == "VOTING" then
+		if overlay.Visible then
+			setOpen(false)
+		end
+	end
+end)
+
 return PrivateLobbyController

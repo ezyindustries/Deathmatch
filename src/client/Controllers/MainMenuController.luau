@@ -1196,6 +1196,22 @@ end
 -- onClick captured a forward-declared slot we fill in here.
 hideMenuFwd = hideMenu
 
+-- Hide the main menu whenever the local player gets a character that they
+-- didn't request themselves. This is the "host clicked START MATCH in a
+-- private party and the server LoadCharacter'd me" path — the player can't
+-- click PLAY to dismiss the menu (they never saw the PLAY button as a
+-- party member), so we auto-dismiss based on the character existing.
+player.CharacterAdded:Connect(function()
+	if screenGui.Enabled then
+		-- Defer one frame so the character's HumanoidRootPart parents before
+		-- the camera switches to Custom; avoids the brief camera-pop visual.
+		task.wait(0.1)
+		if screenGui.Enabled then
+			hideMenu()
+		end
+	end
+end)
+
 -- (mode selection now happens via the card click handlers above; no dropdown
 -- cycle button needed since all modes are visible at once.)
 
