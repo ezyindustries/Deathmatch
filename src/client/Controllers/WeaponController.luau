@@ -1872,12 +1872,16 @@ Remotes.WeaponEquipped.OnClientEvent:Connect(function(weaponId: string, slot: st
 		currentKnifeIsM9 = false
 		currentKnifeIsKarambit = false
 	end
-	buildViewmodel(weapon, partsOverride)
+	-- Update HUD chips BEFORE buildViewmodel — buildViewmodel is heavy
+	-- (yields on viewport mount + skin asset loads) and any error in it
+	-- previously killed the rest of this handler, leaving the slot
+	-- chips stuck at "—" placeholders. UI-first, viewmodel-second.
 	drawStartTime = os.clock()
 	crosshair.Visible = true
 	updateSlotPanel()
 	updateAmmoPanel()
-	applySkinForCurrentWeapon()
+	pcall(buildViewmodel, weapon, partsOverride)
+	pcall(applySkinForCurrentWeapon)
 end)
 
 Remotes.HitConfirm.OnClientEvent:Connect(function(info: any)
