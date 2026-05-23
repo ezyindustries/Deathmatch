@@ -1765,11 +1765,13 @@ if isTouch then
 	if _isMobile then
 		registerHudButton(adsBtn,    "hudAds",    UDim2.new(1, -12, 0, 158))
 		registerHudButton(reloadBtn, "hudReload", UDim2.new(1, -12, 0, 158 + COL_BTN_H + COL_BTN_GAP))
-		registerHudButton(switchBtn, "hudSwap",   UDim2.new(1, -12, 0, 158 + (COL_BTN_H + COL_BTN_GAP) * 2))
+		-- switchBtn / "hudSwap" removed — SWAP button replaced by the 3-chip
+		-- bottom hotbar. Leftover registerHudButton reference here was
+		-- passing a nil btn, causing the entire WeaponController to fail
+		-- to load (attempt to index nil with 'BackgroundColor3').
 	else
 		registerHudButton(adsBtn,    "hudAds",    UDim2.new(1, -12, 0.5, -52))
 		registerHudButton(reloadBtn, "hudReload", UDim2.new(1, -12, 0.5, 0))
-		registerHudButton(switchBtn, "hudSwap",   UDim2.new(1, -12, 0.5, 52))
 	end
 	registerHudButton(sprintBtn, "hudSprint", UDim2.new(0, 12, 1, -160))
 end
