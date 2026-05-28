@@ -5,6 +5,8 @@
 --   * Elevated structures sit on visible walls/pillars/stairs.
 --   * Multiple sightlines, chokepoints, and cover variety per map.
 --   * Map size ~240x200, allowing room for 6-12 players.
+local MapDecorator = require(script.Parent.MapDecorator)
+
 local MapBuilders = {}
 
 -- ============================================================
@@ -31,13 +33,19 @@ local function makeBox(parent: Instance, size: Vector3, position: Vector3, color
 	})
 end
 
+-- Spawn marker visual: invisible SpawnLocation (functional positional marker
+-- only — ArenaService reads .Position from these) + a glowing vertical light
+-- beam rising from the floor. Replaces the previous "floating Neon cube"
+-- look with a "sinar dari lantai" effect per user request.
 local function makeSpawn(parent: Instance, position: Vector3, color: Color3): SpawnLocation
 	local sp = Instance.new("SpawnLocation")
 	sp.Anchored = true
 	sp.Size = Vector3.new(4, 1, 4)
 	sp.Position = position
-	sp.Color = color
-	sp.Material = Enum.Material.Neon
+	-- Invisible + non-collidable — the position is still used by the spawn
+	-- logic but nothing visual or physical lives here.
+	sp.Transparency = 1
+	sp.CanCollide = false
 	sp.TopSurface = Enum.SurfaceType.Smooth
 	sp.BottomSurface = Enum.SurfaceType.Smooth
 	sp.Neutral = true
@@ -45,6 +53,66 @@ local function makeSpawn(parent: Instance, position: Vector3, color: Color3): Sp
 	sp.Duration = 0
 	sp.Enabled = true
 	sp.Parent = parent
+
+	-- Find the actual floor Y below this spawn so the beam starts AT the
+	-- ground, not at the spawn's floating height. Falls back to spawn Y
+	-- if nothing is below (shouldn't happen in a well-built map).
+	local floorY = position.Y - 3 -- safe default (spawn pattern across maps = Y=3 above floor)
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	rayParams.FilterDescendantsInstances = { sp }
+	local hit = workspace:Raycast(position + Vector3.new(0, 0.5, 0), Vector3.new(0, -50, 0), rayParams)
+	if hit then floorY = hit.Position.Y end
+
+	-- Vertical light pillar — Neon cylinder rotated 90° around Z so its long
+	-- axis points up. Tall and translucent so it reads as "energy beam" from
+	-- a distance without blocking sight lines.
+	local BEAM_HEIGHT = 15
+	local BEAM_DIAMETER = 2.8
+	local beam = Instance.new("Part")
+	beam.Name = "SpawnBeam"
+	beam.Anchored = true
+	beam.CanCollide = false
+	beam.CastShadow = false
+	beam.Shape = Enum.PartType.Cylinder
+	-- Cylinder convention: long axis = local +X. Size.X = beam length, Y/Z = diameter.
+	beam.Size = Vector3.new(BEAM_HEIGHT, BEAM_DIAMETER, BEAM_DIAMETER)
+	-- Center beam vertically: bottom rests on floorY, extends BEAM_HEIGHT upward.
+	beam.CFrame = CFrame.new(position.X, floorY + BEAM_HEIGHT / 2, position.Z)
+		* CFrame.Angles(0, 0, math.rad(90))
+	beam.Color = color
+	beam.Material = Enum.Material.Neon
+	beam.Transparency = 0.5
+	beam.TopSurface = Enum.SurfaceType.Smooth
+	beam.BottomSurface = Enum.SurfaceType.Smooth
+	beam.Parent = parent
+
+	-- Soft base glow on the floor surrounding the beam — anchors the light
+	-- visually to the ground so players see "ah, spawn here" from distance.
+	local light = Instance.new("PointLight")
+	light.Color = color
+	light.Brightness = 1.6
+	light.Range = 14
+	light.Shadows = false
+	light.Parent = beam
+
+	-- Floor disc — flat Neon circle at the beam's base for a "landing pad"
+	-- feel. Same color as the beam, slightly brighter (full opacity) so it
+	-- contrasts the translucent column above it.
+	local disc = Instance.new("Part")
+	disc.Name = "SpawnDisc"
+	disc.Anchored = true
+	disc.CanCollide = false
+	disc.CastShadow = false
+	disc.Shape = Enum.PartType.Cylinder
+	disc.Size = Vector3.new(0.2, 6, 6) -- thin, 6-stud wide circle
+	disc.CFrame = CFrame.new(position.X, floorY + 0.1, position.Z)
+		* CFrame.Angles(0, 0, math.rad(90))
+	disc.Color = color
+	disc.Material = Enum.Material.Neon
+	disc.Transparency = 0.2
+	disc.Parent = parent
+
 	return sp
 end
 
@@ -212,6 +280,17 @@ function MapBuilders.warehouse(parent: Folder, origin: Vector3)
 	for _, p in spawnPositions do
 		makeSpawn(spawns, origin + p, accentColor)
 	end
+
+	-- Set dressing — industrial rust barrels/crates scattered around floor,
+	-- ceiling lights for interior atmosphere, neon edge accents for the arena
+	-- perimeter. Seed is map-id-stable so layout is deterministic per server.
+	local avoidPts = MapDecorator.GetSpawnPositions(spawns)
+	MapDecorator.ScatterProps(parent, origin, width - 60, depth - 60, 14, "industrial", avoidPts, 31415)
+	MapDecorator.MakeArenaEdgeNeon(parent, origin, width, depth, 0.6, "industrial")
+	-- 4 ceiling lights at hanging height (15) — gives the warehouse interior glow
+	for _, lp in { Vector3.new(-60, 15, -40), Vector3.new(60, 15, 40), Vector3.new(-60, 15, 40), Vector3.new(60, 15, -40) } do
+		MapDecorator.MakeCeilingLight(parent, origin + lp, "industrial")
+	end
 end
 
 -- ============================================================
@@ -265,6 +344,12 @@ function MapBuilders.rooftop(parent: Folder, origin: Vector3)
 	for _, p in spawnPositions do
 		makeSpawn(spawns, origin + p, accent)
 	end
+
+	-- Urban rooftop dressing — AC units (as crates) + cyan neon edge.
+	-- Fewer props than warehouse since rooftop is open/airy.
+	local avoidPts = MapDecorator.GetSpawnPositions(spawns)
+	MapDecorator.ScatterProps(parent, origin, width - 80, depth - 80, 10, "urban", avoidPts, 27182)
+	MapDecorator.MakeArenaEdgeNeon(parent, origin, width, depth, 0.6, "urban")
 end
 
 -- ============================================================
@@ -322,6 +407,11 @@ function MapBuilders.desert(parent: Folder, origin: Vector3)
 	for _, p in spawnPositions do
 		makeSpawn(spawns, origin + p, accentColor)
 	end
+
+	-- Desert dressing — weathered barrels/crates, sand-yellow neon strips.
+	local avoidPts = MapDecorator.GetSpawnPositions(spawns)
+	MapDecorator.ScatterProps(parent, origin, width - 70, depth - 70, 16, "desert", avoidPts, 16180)
+	MapDecorator.MakeArenaEdgeNeon(parent, origin, width, depth, 0.6, "desert")
 end
 
 -- ============================================================
@@ -390,6 +480,15 @@ function MapBuilders.metro(parent: Folder, origin: Vector3)
 	}
 	for _, p in spawnPositions do
 		makeSpawn(spawns, origin + p, accentColor)
+	end
+
+	-- Subway dressing — extra ceiling lights at platform ends, industrial drums,
+	-- amber neon edge underlines the platform border.
+	local avoidPts = MapDecorator.GetSpawnPositions(spawns)
+	MapDecorator.ScatterProps(parent, origin, width - 80, depth - 100, 10, "industrial", avoidPts, 12345)
+	MapDecorator.MakeArenaEdgeNeon(parent, origin, width, depth, 0.6, "industrial")
+	for _, lp in { Vector3.new(-80, 18, 0), Vector3.new(80, 18, 0), Vector3.new(0, 18, 40), Vector3.new(0, 18, -40) } do
+		MapDecorator.MakeCeilingLight(parent, origin + lp, "industrial")
 	end
 end
 
@@ -465,6 +564,12 @@ function MapBuilders.harbor(parent: Folder, origin: Vector3)
 	for _, p in spawnPositions do
 		makeSpawn(spawns, origin + p, accentColor)
 	end
+
+	-- Harbor dressing — rust barrels around container maze (industrial theme),
+	-- cyan-blue neon edge matches accentColor for cohesive look.
+	local avoidPts = MapDecorator.GetSpawnPositions(spawns)
+	MapDecorator.ScatterProps(parent, origin, width - 60, depth - 80, 18, "industrial", avoidPts, 11235)
+	MapDecorator.MakeArenaEdgeNeon(parent, origin, width, depth, 0.6, "industrial", accentColor)
 end
 
 -- ============================================================

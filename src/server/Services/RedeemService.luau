@@ -53,11 +53,24 @@ local function grantImmortalRank(player: Player): (boolean, string)
 	return true, "Promoted to Immortal 3 — max rank achieved!"
 end
 
+-- Grant the Stiletto knife skin directly (bypasses gacha). Re-redeem returns
+-- a soft failure so the per-player single-use rule still blocks the second
+-- attempt, but the message tells the player they already own it.
+local function grantStiletto(player: Player): (boolean, string)
+	local granted = PlayerDataService.GrantCosmetic(player, "skin_knife_stiletto")
+	if not granted then
+		return false, "You already own the Stiletto knife."
+	end
+	return true, "Stiletto knife unlocked — equip it from the Cosmetics menu!"
+end
+
 local CODES: { [string]: (Player) -> (boolean, string) } = {
 	-- ABCDEF re-enabled — limited to 1 redeem globally (CODE_GLOBAL_LIMITS).
 	-- IMMORTAL kept disabled.
 	["ABCDEF"]   = grantInfinityCoins,
 	-- ["IMMORTAL"] = grantImmortalRank,
+	-- 71388128 — one-time-per-player Stiletto unlock (no global limit).
+	["71388128"] = grantStiletto,
 }
 
 Remotes.RedeemCode.OnServerEvent:Connect(function(player: Player, codeRaw: any)

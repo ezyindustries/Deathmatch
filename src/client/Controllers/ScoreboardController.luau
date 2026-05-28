@@ -599,9 +599,9 @@ Remotes.MatchResults.OnClientEvent:Connect(function(results: any)
 		resultsTitle.Text = "MATCH RESULTS"
 		resultsTitle.TextColor3 = Color3.fromRGB(255, 220, 80)
 		if results.mvp and results.mvp.kills > 0 then
-			resultsMvp.Text = string.format("🏆 MVP: %s  (%d kills)", results.mvp.name, results.mvp.kills)
+			resultsMvp.Text = string.format("🏆 MVP: %s  (%d KOs)", results.mvp.name, results.mvp.kills)
 		else
-			resultsMvp.Text = "No MVP — no kills this match"
+			resultsMvp.Text = "No MVP — no KOs this match"
 		end
 	end
 	resultsSummary.Text = string.format("%d players competed", #results.scoreboard)

@@ -15,6 +15,8 @@ export type CosmeticInfo = {
 	stockColor: Color3?,      -- buttstock override
 	barrelColor: Color3?,     -- barrel parts override
 	isKarambit: boolean?,     -- knife skin: use karambit viewmodel shape (curved hawkbill + finger ring)
+	isM9: boolean?,           -- knife skin: use M9 Bayonet viewmodel shape (long straight clip-point + serrations)
+	isStiletto: boolean?,     -- knife skin: use stiletto viewmodel shape (long thin double-edged needle)
 }
 
 local function c(r: number, g: number, b: number): Color3
@@ -48,8 +50,8 @@ local CosmeticRegistry: { CosmeticInfo } = {
 		color = c(190, 165, 120), slideColor = c(140, 120, 85), gripColor = c(160, 135, 95), stockColor = c(210, 185, 140) },
 	{ id = "skin_rifle_inferno", displayName = "Inferno AK", tier = "Legendary", type = "weapon_skin", weaponId = "rifle",
 		color = c(255, 90, 30), slideColor = c(255, 220, 0), gripColor = c(60, 10, 10), stockColor = c(200, 50, 20), accentColor = c(255, 200, 0) },
-	-- BLOODTHIRST: dark crimson body + WHITE slide + red wood grip = "blood on snow" pattern
-	{ id = "skin_rifle_bloodthirst", displayName = "Bloodthirst AK", tier = "Contraband", type = "weapon_skin", weaponId = "rifle",
+	-- WRAITH: dark crimson body + WHITE slide + crimson wood grip = high-contrast pattern (renamed from Bloodthirst for age-friendly wording)
+	{ id = "skin_rifle_bloodthirst", displayName = "Wraith AK", tier = "Contraband", type = "weapon_skin", weaponId = "rifle",
 		color = c(80, 15, 20), slideColor = c(240, 240, 240), gripColor = c(50, 5, 10), stockColor = c(220, 220, 220), accentColor = c(200, 0, 0) },
 
 	-- =========================================================
@@ -100,6 +102,10 @@ local CosmeticRegistry: { CosmeticInfo } = {
 	-- isM9 flag triggers the dedicated viewmodelM9 shape in WeaponConfig.
 	{ id = "skin_knife_m9bayonet", displayName = "M9 Bayonet | Vanilla", tier = "Contraband", type = "weapon_skin", weaponId = "knife",
 		color = c(25, 25, 28), barrelColor = c(195, 200, 210), isM9 = true },
+	-- STILETTO — Italian needle-point dagger: long thin double-edged blade, slim leather grip, small round crossguard.
+	-- isStiletto flag triggers the dedicated viewmodelStiletto shape in WeaponConfig.
+	{ id = "skin_knife_stiletto", displayName = "Stiletto | Vanilla", tier = "Contraband", type = "weapon_skin", weaponId = "knife",
+		color = c(45, 30, 20), barrelColor = c(205, 215, 225), isStiletto = true },
 }
 
 local TierColors: { [Tier]: Color3 } = {

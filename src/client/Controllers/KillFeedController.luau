@@ -244,7 +244,7 @@ local function buildEntry(info: any)
 	weaponLbl.Font = UITheme.Font.heading
 	weaponLbl.TextSize = weaponFontSize
 	weaponLbl.TextColor3 = tierColor
-	weaponLbl.Text = string.format("%s %s %s", "▸", info.weapon or "Kill", "▸")
+	weaponLbl.Text = string.format("%s %s %s", "▸", info.weapon or "KO", "▸")
 	weaponLbl.LayoutOrder = 2
 	weaponLbl.Parent = entry
 

@@ -78,21 +78,67 @@ local function buildSpawnPoints()
 
 	local radius = 38
 	local count = 6
+	local spawnColor = Color3.fromRGB(80, 200, 120)
 	for i = 1, count do
 		local angle = (i / count) * math.pi * 2
+		local px = math.cos(angle) * radius
+		local pz = math.sin(angle) * radius
+		local spawnY = 2.5 + FLOOR_LIFT
+		local floorY = FLOOR_LIFT -- lobby floor level (top of baseplate)
+
+		-- Invisible positional marker — visual replaced by beam + disc below.
 		local sp = Instance.new("SpawnLocation")
 		sp.Name = "Spawn_" .. i
 		sp.Anchored = true
 		sp.Size = Vector3.new(4, 1, 4)
-		sp.Position = Vector3.new(math.cos(angle) * radius, 2.5 + FLOOR_LIFT, math.sin(angle) * radius)
-		sp.Color = Color3.fromRGB(80, 200, 120)
-		sp.Material = Enum.Material.Neon
+		sp.Position = Vector3.new(px, spawnY, pz)
+		sp.Transparency = 1
+		sp.CanCollide = false
 		sp.TopSurface = Enum.SurfaceType.Smooth
 		sp.BottomSurface = Enum.SurfaceType.Smooth
 		sp.Neutral = true
 		sp.AllowTeamChangeOnTouch = false
 		sp.Duration = 0
 		sp.Parent = folder
+
+		-- Vertical light pillar from the floor (matches makeSpawn in MapBuilders).
+		local BEAM_HEIGHT = 15
+		local BEAM_DIAMETER = 2.8
+		local beam = Instance.new("Part")
+		beam.Name = "SpawnBeam"
+		beam.Anchored = true
+		beam.CanCollide = false
+		beam.CastShadow = false
+		beam.Shape = Enum.PartType.Cylinder
+		beam.Size = Vector3.new(BEAM_HEIGHT, BEAM_DIAMETER, BEAM_DIAMETER)
+		beam.CFrame = CFrame.new(px, floorY + BEAM_HEIGHT / 2, pz) * CFrame.Angles(0, 0, math.rad(90))
+		beam.Color = spawnColor
+		beam.Material = Enum.Material.Neon
+		beam.Transparency = 0.5
+		beam.TopSurface = Enum.SurfaceType.Smooth
+		beam.BottomSurface = Enum.SurfaceType.Smooth
+		beam.Parent = folder
+
+		local light = Instance.new("PointLight")
+		light.Color = spawnColor
+		light.Brightness = 1.6
+		light.Range = 14
+		light.Shadows = false
+		light.Parent = beam
+
+		-- Floor disc — landing-pad accent at the beam's base.
+		local disc = Instance.new("Part")
+		disc.Name = "SpawnDisc"
+		disc.Anchored = true
+		disc.CanCollide = false
+		disc.CastShadow = false
+		disc.Shape = Enum.PartType.Cylinder
+		disc.Size = Vector3.new(0.2, 6, 6)
+		disc.CFrame = CFrame.new(px, floorY + 0.1, pz) * CFrame.Angles(0, 0, math.rad(90))
+		disc.Color = spawnColor
+		disc.Material = Enum.Material.Neon
+		disc.Transparency = 0.2
+		disc.Parent = folder
 	end
 end
 

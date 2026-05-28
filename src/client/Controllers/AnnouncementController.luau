@@ -26,12 +26,12 @@ local UITheme = require(Shared.Modules.UITheme)
 
 -- Map streak label → AudioConfig key (each tier has its own announcer sound).
 local STREAK_SOUND_KEY: { [string]: string } = {
-	["FIRST KILL"]  = "streak_first",
-	["DOUBLE KILL"] = "streak_double",
-	["TRIPLE KILL"] = "streak_triple",
-	["QUADRA KILL"] = "streak_quadra",
-	["PENTA KILL"]  = "streak_penta",
-	["DOMINATOR"]   = "streak_dominator",
+	["FIRST PUNCH"]  = "streak_first",
+	["DOUBLE PUNCH"] = "streak_double",
+	["TRIPLE PUNCH"] = "streak_triple",
+	["QUADRA PUNCH"] = "streak_quadra",
+	["PENTA PUNCH"]  = "streak_penta",
+	["DOMINATOR"]    = "streak_dominator",
 }
 
 -- Streak threshold at which we emit the celebratory particle burst. Anything
@@ -295,11 +295,11 @@ local function renderBanner(info: any)
 
 	local isLocal = info.player == player.Name
 	if isLocal then
-		subLabel.Text = string.format("%d killstreak", info.streak or 0)
+		subLabel.Text = string.format("%d streak", info.streak or 0)
 		-- Announcer voice only for local player's own streak (avoid spam)
 		playStreakSound(info.label)
 	else
-		subLabel.Text = string.format("%s — %d kills", info.player or "?", info.streak or 0)
+		subLabel.Text = string.format("%s — %d KOs", info.player or "?", info.streak or 0)
 	end
 
 	-- Ensure responsive size is current before showing (in case viewport

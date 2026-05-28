@@ -27,8 +27,8 @@ local Sounds: { [string]: SoundEntry } = {
 	level_up = { id = "rbxasset://sounds/bell.mp3", volume = 0.8, pitch = 1.4 },
 	hit_marker = { id = "rbxasset://sounds/electronicpingshort.wav", volume = 0.5, pitch = 1.8 },
 	hit_marker_head = { id = "rbxasset://sounds/electronicpingshort.wav", volume = 0.7, pitch = 2.4 },
-	-- Killstreak announcer voices. Placeholder = built-in bell at varying pitch.
-	-- TODO: replace each `id` with a real announcer voice asset (e.g., "Double Kill"
+	-- Streak announcer voices. Placeholder = built-in bell at varying pitch.
+	-- TODO: replace each `id` with a real announcer voice asset (e.g., "Double Punch"
 	-- TTS or game-rip). Volume scales up with tier so DOMINATOR feels biggest.
 	streak_first     = { id = "rbxasset://sounds/bell.mp3", volume = 0.65, pitch = 1.0 },
 	streak_double    = { id = "rbxasset://sounds/bell.mp3", volume = 0.70, pitch = 1.2 },
@@ -42,6 +42,10 @@ local Sounds: { [string]: SoundEntry } = {
 	-- Modern tactical blade whoosh (CS-style). Played 3D-positional at the
 	-- shooter via ShotFired → AudioController.
 	knife_swing = { id = "rbxassetid://7382280087", volume = 0.9, pitch = 1.0 },
+	-- Stiletto switchblade "KLIK" — plays when the blade snaps fully open
+	-- at the end of the draw animation. Sharp short click pitched down for
+	-- a satisfying mechanical snap.
+	knife_klik = { id = "rbxasset://sounds/clickfast.wav", volume = 0.8, pitch = 0.7 },
 
 	-- =========================================================
 	-- PER-WEAPON SOUNDS (UMP-45 / AWP / Glock-18). AK-47 unchanged → uses

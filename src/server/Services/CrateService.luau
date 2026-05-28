@@ -17,11 +17,13 @@ local KARAMBIT_FOREST_ID = "skin_knife_karambit"
 local KARAMBIT_GOLD_ID = "skin_knife_gold"
 local KARAMBIT_MARBLE_ID = "skin_knife_doppler"
 local M9_VANILLA_ID = "skin_knife_m9bayonet"
+local STILETTO_VANILLA_ID = "skin_knife_stiletto"
 local KARAMBIT_IDS: { [string]: boolean } = {
 	[KARAMBIT_FOREST_ID] = true,
 	[KARAMBIT_GOLD_ID] = true,
 	[KARAMBIT_MARBLE_ID] = true,
 	[M9_VANILLA_ID] = true,
+	[STILETTO_VANILLA_ID] = true,
 }
 
 -- Starter knife — granted to every new player as the default melee. Excluded
@@ -44,9 +46,9 @@ local function pickRandomFromTier(tier: CosmeticRegistry.Tier): CosmeticRegistry
 	return pool[math.random(#pool)]
 end
 
--- Within the rare-melee pool: 90% Forest / 4.5% Gold / 0.5% Marble / 5% M9 Vanilla
+-- Within the rare-melee pool: 85.5% Forest / 4.5% Gold / 0.5% Marble / 5% M9 Vanilla / 4.5% Stiletto Vanilla
 -- Absolute drop rate per gacha = KARAMBIT_OVERALL_RATE × (slot %).
--- M9 absolute = 0.5% × 5% = 0.025% per pull.
+-- Stiletto matches Gold Karambit slot weight (4.5%) → absolute = 0.5% × 4.5% = 0.0225% per pull.
 local function rollKarambit(): CosmeticRegistry.CosmeticInfo
 	local r = math.random()
 	if r < 0.005 then
@@ -55,6 +57,8 @@ local function rollKarambit(): CosmeticRegistry.CosmeticInfo
 		return CosmeticRegistry.ById[KARAMBIT_GOLD_ID]
 	elseif r < 0.005 + 0.045 + 0.05 then
 		return CosmeticRegistry.ById[M9_VANILLA_ID]
+	elseif r < 0.005 + 0.045 + 0.05 + 0.045 then
+		return CosmeticRegistry.ById[STILETTO_VANILLA_ID]
 	else
 		return CosmeticRegistry.ById[KARAMBIT_FOREST_ID]
 	end

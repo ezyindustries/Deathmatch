@@ -351,7 +351,7 @@ subtitle.BackgroundTransparency = 1
 subtitle.Font = UITheme.Font.body
 subtitle.TextSize = UITheme.FontSize.caption
 subtitle.TextColor3 = Color3.fromRGB(220, 180, 130)
-subtitle.Text = "TACTICAL DEATHMATCH"
+subtitle.Text = "TACTICAL BATTLE"
 subtitle.Parent = screenGui
 
 -- ===== Center column: Mode cards (visible at once) + PLAY button =====
@@ -381,9 +381,9 @@ type ModeInfo = { id: string, name: string, tagline: string, info: string, accen
 local MODES: { ModeInfo } = {
 	{
 		id = "deathmatch",
-		name = "DEATHMATCH",
+		name = "BATTLE",
 		tagline = "FREE-FOR-ALL",
-		info = "10 vs 10 Team Deathmatch — kerjasama bareng tim untuk menang.",
+		info = "10 vs 10 Team Battle — kerjasama bareng tim untuk menang.",
 		accent = Color3.fromRGB(220, 100, 80),
 	},
 	{
@@ -1227,6 +1227,16 @@ Remotes.EnterTrainingMode.OnClientEvent:Connect(function(active: boolean)
 	end
 end)
 
+-- Pause-menu "Back to Main Menu" → server destroys character but doesn't echo
+-- a per-mode "menu should show" event for deathmatch. PauseMenuController
+-- fires this ClientSignal locally so the menu re-appears after the
+-- ExitToMainMenu request, instead of leaving the player on an empty screen.
+-- Small delay lets the character-destroy + screen-clear cycle settle.
+ClientSignals.Get("ReturnToMainMenu").Event:Connect(function()
+	task.wait(0.15)
+	showMenu()
+end)
+
 -- ============================================================
 -- WAITING / SPECTATOR OVERLAY
 -- Shown when player picked a mode but match isn't running their mode yet (or
@@ -1426,10 +1436,10 @@ Remotes.CasualWaitingForMatch.OnClientEvent:Connect(function(payload: any)
 		nextTargetSwapAt = 0 -- force immediate target pick
 		-- Customize text per mode
 		if pMode == "deathmatch" then
-			waitTag.Text = "SPECTATING — WAITING FOR DEATHMATCH"
+			waitTag.Text = "SPECTATING — WAITING FOR BATTLE"
 			waitTag.TextColor3 = Color3.fromRGB(220, 100, 80)
-			waitTitle.Text = if pActive then "Joining active deathmatch..." else "Waiting for next DM match..."
-			waitDesc.Text = "Lo lagi nonton match. Pas DM match berikutnya mulai lo auto spawn."
+			waitTitle.Text = if pActive then "Joining active battle..." else "Waiting for next battle..."
+			waitDesc.Text = "Lo lagi nonton match. Pas battle berikutnya mulai lo auto spawn."
 		else
 			waitTag.Text = "SPECTATING — JOINING NEXT ROUND"
 			waitTag.TextColor3 = Color3.fromRGB(210, 160, 80)

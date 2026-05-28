@@ -33,11 +33,11 @@ local killStreaks: { [number]: number } = {}
 -- Streak tier labels — per-player consecutive-kill count (resets on death).
 -- Function (not lookup table) so streak >= 6 always returns DOMINATOR.
 local function streakLabel(streak: number): string?
-	if streak == 1 then return "FIRST KILL"
-	elseif streak == 2 then return "DOUBLE KILL"
-	elseif streak == 3 then return "TRIPLE KILL"
-	elseif streak == 4 then return "QUADRA KILL"
-	elseif streak == 5 then return "PENTA KILL"
+	if streak == 1 then return "FIRST PUNCH"
+	elseif streak == 2 then return "DOUBLE PUNCH"
+	elseif streak == 3 then return "TRIPLE PUNCH"
+	elseif streak == 4 then return "QUADRA PUNCH"
+	elseif streak == 5 then return "PENTA PUNCH"
 	elseif streak >= 6 then return "DOMINATOR"
 	end
 	return nil

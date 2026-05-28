@@ -1832,8 +1832,21 @@ local function knifeM9PartsIfActive(): any?
 	return m9Viewmodel and m9Viewmodel.parts
 end
 
+-- Returns Stiletto parts override if knife equipped with stiletto-flagged skin, else nil.
+local function knifeStilettoPartsIfActive(): any?
+	if not cachedProfile then return nil end
+	local skinId = cachedProfile.equipped and cachedProfile.equipped["skin_knife"]
+	if not skinId then return nil end
+	local cosmetic = CosmeticRegistry.ById[skinId]
+	if not cosmetic or not (cosmetic :: any).isStiletto then return nil end
+	local weapon = WeaponConfig["knife"]
+	local stilettoViewmodel = weapon and (weapon :: any).viewmodelStiletto
+	return stilettoViewmodel and stilettoViewmodel.parts
+end
+
 local currentKnifeIsKarambit = false
 local currentKnifeIsM9 = false
+local currentKnifeIsStiletto = false
 
 Remotes.WeaponEquipped.OnClientEvent:Connect(function(weaponId: string, slot: string)
 	-- Auto-close scope on weapon switch (toggle scope wouldn't survive switching)
@@ -1861,17 +1874,21 @@ Remotes.WeaponEquipped.OnClientEvent:Connect(function(weaponId: string, slot: st
 		return
 	end
 	-- Knife shape switch: if equipped skin has isM9 → M9 Bayonet viewmodel,
-	-- else isKarambit → karambit viewmodel, else default straight combat knife.
-	-- Flags are mutually exclusive in practice (one shape per cosmetic).
+	-- else isStiletto → stiletto viewmodel, else isKarambit → karambit viewmodel,
+	-- else default straight combat knife. Flags are mutually exclusive in
+	-- practice (one shape per cosmetic).
 	local partsOverride: any = nil
 	if weaponId == "knife" then
 		local m9Parts = knifeM9PartsIfActive()
+		local stilettoParts = knifeStilettoPartsIfActive()
 		local karambitParts = knifeKarambitPartsIfActive()
-		partsOverride = m9Parts or karambitParts
+		partsOverride = m9Parts or stilettoParts or karambitParts
 		currentKnifeIsM9 = (m9Parts ~= nil)
-		currentKnifeIsKarambit = (karambitParts ~= nil) and (m9Parts == nil)
+		currentKnifeIsStiletto = (stilettoParts ~= nil) and (m9Parts == nil)
+		currentKnifeIsKarambit = (karambitParts ~= nil) and (m9Parts == nil) and (stilettoParts == nil)
 	else
 		currentKnifeIsM9 = false
+		currentKnifeIsStiletto = false
 		currentKnifeIsKarambit = false
 	end
 	-- Update HUD chips BEFORE buildViewmodel — buildViewmodel is heavy
@@ -1884,6 +1901,22 @@ Remotes.WeaponEquipped.OnClientEvent:Connect(function(weaponId: string, slot: st
 	updateAmmoPanel()
 	pcall(buildViewmodel, weapon, partsOverride)
 	pcall(applySkinForCurrentWeapon)
+	-- Stiletto pullout KLIK: schedule the mechanical "klik" to fire at the
+	-- moment the blade finishes sliding from the handle into rest position
+	-- (≈bladePullDuration after draw start). Captures drawStartTime by value
+	-- so a fast re-equip can't accidentally fire the wrong klik.
+	if currentKnifeIsStiletto then
+		local stilettoVM = (weapon :: any).viewmodelStiletto
+		local pullDur = (stilettoVM and stilettoVM.bladePullDuration) or 0.35
+		local scheduledFor = drawStartTime
+		task.delay(pullDur, function()
+			-- Bail if the player swapped weapons or re-equipped before the
+			-- timer fired — the captured scheduledFor will no longer match.
+			if drawStartTime ~= scheduledFor then return end
+			if equippedId ~= "knife" or not currentKnifeIsStiletto then return end
+			playUiSound(AudioConfig.knife_klik)
+		end)
+	end
 end)
 
 Remotes.HitConfirm.OnClientEvent:Connect(function(info: any)
@@ -2231,6 +2264,26 @@ RunService.RenderStepped:Connect(function(dt: number)
 			karambitBladeRelative = baseGripCF:Inverse() * bladeGripCF
 		end
 
+		-- STILETTO PULLOUT: blade slides FROM the handle position UPWARD to
+		-- its rest pose on draw. The blade's authored offset IS the rest
+		-- pose; during pullout we replace it with a Lerp from the configured
+		-- bladePullStartOffset (= handle position) to that rest pose. After
+		-- the pull window completes the blade snaps to its rest offset and
+		-- the KLIK sound fires (scheduled separately in WeaponEquipped).
+		local stilettoPullStart: CFrame? = nil
+		local stilettoPullT: number = 1
+		if currentKnifeIsStiletto then
+			local stilettoVM = (weapon :: any).viewmodelStiletto
+			if stilettoVM and stilettoVM.bladePullStartOffset then
+				local pullDur = stilettoVM.bladePullDuration or 0.35
+				local t = math.min(1, (os.clock() - drawStartTime) / pullDur)
+				if t < 1 then
+					stilettoPullStart = stilettoVM.bladePullStartOffset
+					stilettoPullT = 1 - (1 - t) * (1 - t) -- ease-out
+				end
+			end
+		end
+
 		-- Hide AWP viewmodel during scope (scope view should not include the rifle).
 		local hideForScope = isAds and weapon.id == "sniper"
 		for i, info in viewmodelParts do
@@ -2270,11 +2323,18 @@ RunService.RenderStepped:Connect(function(dt: number)
 			-- KARAMBIT PULLOUT SPIN: blade body twirls around finger ring (pivot).
 			-- Apply only to blade body parts (i >= 3), arm stays put.
 			local pivotedSpin = (karambitBladePivotSpinCF and i >= 3) and karambitBladePivotSpinCF or nil
+			-- STILETTO PULLOUT lerp: blade slides from handle position into rest.
+			-- Only barrel parts (the silver blade box) get this treatment; the
+			-- handle (body) and arms (stock) stay at their static offsets.
+			local partOffset = info.config.offset
+			if stilettoPullStart and info.config.role == "barrel" then
+				partOffset = stilettoPullStart:Lerp(info.config.offset, stilettoPullT)
+			end
 			local finalCF: CFrame
 			if pivotedSpin then
-				finalCF = grip * swing * pivotedSpin * info.config.offset * extra
+				finalCF = grip * swing * pivotedSpin * partOffset * extra
 			else
-				finalCF = grip * swing * info.config.offset * extra
+				finalCF = grip * swing * partOffset * extra
 			end
 			-- Left-handed mirror: transform to cam-local, mirror across YZ, back to world.
 			if leftHanded then

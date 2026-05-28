@@ -79,7 +79,7 @@ headerTitle.BackgroundTransparency = 1
 headerTitle.Font = Enum.Font.GothamBlack
 headerTitle.TextSize = 16
 headerTitle.TextColor3 = Color3.fromRGB(255, 200, 100)
-headerTitle.Text = "DEATHMATCH SCOREBOARD"
+headerTitle.Text = "BATTLE SCOREBOARD"
 headerTitle.Parent = header
 
 -- Tab hint at top-right of header

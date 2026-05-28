@@ -14,8 +14,8 @@ export type MissionInfo = {
 local Missions: { MissionInfo } = {
 	{
 		id = "daily_kills_10",
-		displayName = "Killer",
-		description = "Get 10 kills",
+		displayName = "Brawler",
+		description = "Get 10 KOs",
 		target = 10,
 		type = "kills",
 		rewardCoins = 120,

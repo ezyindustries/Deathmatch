@@ -453,9 +453,15 @@ resumeBtn.MouseButton1Click:Connect(function()
 	setOpen(false)
 end)
 exitBtn.MouseButton1Click:Connect(function()
-	-- Fire the same path as the M-key handler (MainMenuController owns it)
+	-- Fire the same path as the M-key handler (MainMenuController owns it).
+	-- Server-side destroys the character + resets hasSpawned, but doesn't
+	-- echo back a "show menu" event for deathmatch (only training has
+	-- EnterTrainingMode:FireClient(false)). Local ClientSignal triggers
+	-- MainMenuController to re-display the menu UI so the player doesn't
+	-- end up on an empty post-destroy screen.
 	setOpen(false)
 	Remotes.ExitToMainMenu:FireServer()
+	ClientSignals.Get("ReturnToMainMenu"):Fire()
 end)
 
 UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)

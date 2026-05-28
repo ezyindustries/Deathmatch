@@ -1264,6 +1264,95 @@ local WeaponConfig: { [string]: WeaponInfo } = {
 				return parts
 			end)(),
 		},
+		-- STILETTO viewmodel — boxy switchblade with PULLOUT slide animation.
+		-- Final held pose (baked from in-game tuner values):
+		--   • HANDLE (brown): translated +0.5 stud in X, rotated -60° around Z
+		--   • BLADE (silver): translated (+0.25, +0.40, 0) stud, rotated -60° around Z
+		-- On draw, the blade STARTS at the handle's position (visually tucked
+		-- inside the handle) and LERPS upward/forward to its rest pose over
+		-- `bladePullDuration` seconds with ease-out. KLIK sound plays exactly
+		-- when the blade locks into the final pose.
+		-- Activated when the player's equipped skin_knife cosmetic has
+		-- `isStiletto = true`.
+		--
+		-- Animation contract (read by WeaponController render loop):
+		--   • Parts with role == "barrel" (the blade) lerp from
+		--     `bladePullStartOffset` → `info.config.offset` over `bladePullDuration`.
+		--   • Parts with role == "body" (the handle) are static at their offset.
+		--   • Stock role = arms (untouched, same as M9/combat).
+		viewmodelStiletto = {
+			-- M9-style grip — knife held horizontally, edge down. Same pose
+			-- as M9 Bayonet per user "berdiri kayak m9" request — no Z-axis
+			-- tilt, blade extends forward from handle naturally.
+			grip = CFrame.new(0.55, -0.5, -1.6) * CFrame.Angles(rad(25), rad(-45), 0),
+			-- Pullout start: blade tucked inside the handle (sharing handle's
+			-- offset). During the pullout window the render loop lerps the
+			-- blade forward to its rest offset → visible "slides out the front
+			-- of the handle" effect. KLIK plays the instant the blade locks
+			-- into the forward position.
+			bladePullStartOffset = CFrame.new(-0.25, -0.25, -0.05),
+			bladePullDuration = 0.35,
+			parts = (function(): { ViewmodelPart }
+				local parts: { ViewmodelPart } = {}
+				local function add(p: any)
+					table.insert(parts, p)
+				end
+
+				-- Color palette
+				local SKIN_TONE   = Color3.fromRGB(225, 190, 155)
+				local HANDLE_BROWN = Color3.fromRGB(95, 60, 30)
+				local HANDLE_DARK  = Color3.fromRGB(60, 38, 18)
+				local BLADE_SILVER = Color3.fromRGB(210, 220, 230)
+
+				-- Coordinate convention (matches combat/M9 knife):
+				-- -X = forward (blade tip), +X = back (pommel)
+				-- Y vertical, Z lateral. NO Z-axis rotation — knife held flat/horizontal
+				-- in the M9 pose.
+
+				-- === RIGHT ARM ===
+				add({ role = "stock",
+					size = Vector3.new(0.95, 0.35, 0.35),
+					offset = CFrame.new(0.4, -0.3, -0.05),
+					color = SKIN_TONE,
+					material = Enum.Material.SmoothPlastic })
+
+				-- === LEFT ARM (same off-hand pose as combat/M9) ===
+				add({ role = "stock",
+					size = Vector3.new(0.55, 0.35, 0.35),
+					offset = (CFrame.new(0.55, -0.5, -1.6) * CFrame.Angles(rad(25), rad(-45), 0)):Inverse()
+						* (CFrame.new(-0.5, -0.85, -1.0) * CFrame.Angles(rad(-30), rad(-20), rad(10)))
+						* CFrame.new(0.25, 0, 0),
+					color = SKIN_TONE,
+					material = Enum.Material.SmoothPlastic })
+
+				-- === HANDLE — brown rectangular box sitting in the hand area,
+				-- spanning x=[-0.5, 0]. Same X-span as the combat/M9 handle.
+				add({ role = "body",
+					size = Vector3.new(0.5, 0.2, 0.2),
+					offset = CFrame.new(-0.25, -0.25, -0.05),
+					color = HANDLE_BROWN,
+					material = Enum.Material.WoodPlanks })
+				-- Darker mid-stripe panel (visual detail on the side of the handle).
+				add({ role = "body",
+					size = Vector3.new(0.46, 0.06, 0.21),
+					offset = CFrame.new(-0.25, -0.25, -0.05),
+					color = HANDLE_DARK,
+					material = Enum.Material.SmoothPlastic })
+
+				-- === BLADE — silver rectangular box extending FORWARD from
+				-- the handle's front edge (x=-0.5). Blade length 0.4 → spans
+				-- x=[-0.9, -0.5]. Centered vertically with handle (y=-0.25).
+				-- Same Z (-0.05) for visual alignment. Rest pose looks like a
+				-- M9 bayonet held horizontally, blade pointing forward.
+				add({ role = "barrel",
+					size = Vector3.new(0.4, 0.1, 0.06),
+					offset = CFrame.new(-0.7, -0.25, -0.05),
+					color = BLADE_SILVER,
+					material = Enum.Material.Metal })
+
+				return parts
+			end)(),
+		},
 	},
 }
 

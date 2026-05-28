@@ -40,7 +40,7 @@ deathTitle.Font = Enum.Font.GothamBlack
 deathTitle.TextSize = 44
 deathTitle.TextColor3 = Color3.fromRGB(255, 90, 90)
 deathTitle.TextStrokeTransparency = 0.4
-deathTitle.Text = "YOU DIED"
+deathTitle.Text = "KNOCKED OUT"
 deathTitle.Parent = screenGui
 deathTitle.Visible = false
 
@@ -217,7 +217,7 @@ local function enterSpectator(info: any?)
 
 	if info then
 		local hsTag = info.isHeadshot and "  [HEADSHOT]" or ""
-		deathInfo.Text = string.format("Killed by %s • %s (%dm)%s",
+		deathInfo.Text = string.format("KO'd by %s • %s (%dm)%s",
 			info.killer or "?",
 			info.weapon or "?",
 			math.floor(info.distance or 0),

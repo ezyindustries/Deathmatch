@@ -14,6 +14,7 @@ local Remotes = require(Shared.Modules.Remotes)
 local DMTeams = require(Shared.Modules.DMTeams)
 local MatchStateService = require(script.Parent.MatchStateService)
 local ScoringService = require(script.Parent.ScoringService)
+local TrainingService = require(script.Parent.TrainingService)
 local BotAnimator = require(script.Parent.Parent.Modules.BotAnimator)
 
 local DeathmatchBotService = {}
@@ -192,6 +193,10 @@ local function findReferencePlayerPos(): Vector3?
 	end
 	if not sampleY then return nil end
 	for _, p in Players:GetPlayers() do
+		-- Practice players are in an isolated training room at (-2000, 100, 0).
+		-- Their HRP Y can coincidentally match the arena floor Y; ignore them
+		-- so DM bots don't spawn in the training room.
+		if TrainingService.IsTraining(p.UserId) then continue end
 		local char = p.Character
 		local hrp = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
 		if hrp then
@@ -366,6 +371,9 @@ local function findNearestTarget(self: Model, botPos: Vector3): (Model?, BasePar
 	-- standing motionless. Re-fetched per call so team swaps mid-life apply.
 	local myTeam = teamSvc().GetTeam(self)
 	for _, p in Players:GetPlayers() do
+		-- Practice players are off-limits as DM bot targets even if they
+		-- happen to fall within range somehow (e.g. respawn timing).
+		if TrainingService.IsTraining(p.UserId) then continue end
 		local char = p.Character
 		if not char then continue end
 		local hum = char:FindFirstChildOfClass("Humanoid")
@@ -622,12 +630,42 @@ end
 -- Forward-declared so setupBot can reference it
 local rebuildBot: (oldBot: Model) -> ()
 
--- Fallback spawn position used when ArenaService hasn't published spawns yet
--- (mid-map-rebuild) or when all arena spawns have somehow ended up in the
--- void. Picked high above the lobby so the bot has time to physics-settle
--- onto SOMETHING reachable instead of falling straight to FallenPartsDestroy.
-local FALLBACK_SPAWN_POS = Vector3.new(0, 50, 0)
+-- Last-resort spawn position when ArenaService hasn't published spawns yet
+-- (mid-map-rebuild) or all arena spawns have ended up in the void. Static
+-- (0, 50, 0) is the lobby area — not ideal, see resolveFallbackSpawnPos()
+-- below which tries to land inside the live ActiveArena first.
+local HARDCODED_FALLBACK_POS = Vector3.new(0, 50, 0)
 local VOID_Y_THRESHOLD = -50
+
+-- Best-effort safe spawn when the Spawns folder is empty: scan ActiveArena
+-- for ANY BasePart and use it as a reference (lifted above its top so the
+-- bot drops onto whatever floor exists). Avoids dumping the rebuilt bot at
+-- the hardcoded lobby coords (0, 50, 0) which is what "respawn di tempat
+-- lain" looked like to the player — bot reappears outside the arena.
+local function resolveFallbackSpawnPos(): Vector3
+	local arena = Workspace:FindFirstChild("ActiveArena")
+	if not arena then return HARDCODED_FALLBACK_POS end
+	-- Prefer a Parts subfolder (most maps put geometry there) — picking from
+	-- the floor gives us a sensible Y. Fall back to any descendant BasePart.
+	local sampleParts = arena:FindFirstChild("Parts")
+	local container: Instance = sampleParts or arena
+	local bestY: number? = nil
+	local bestPart: BasePart? = nil
+	for _, c in container:GetDescendants() do
+		if c:IsA("BasePart") and c.Position.Y > VOID_Y_THRESHOLD then
+			-- Pick the highest part as a "ceiling reference" so we spawn well
+			-- above any geometry — the bot will fall through to the floor.
+			if bestY == nil or c.Position.Y > bestY then
+				bestY = c.Position.Y
+				bestPart = c
+			end
+		end
+	end
+	if bestPart then
+		return bestPart.Position + Vector3.new(0, 10, 0)
+	end
+	return HARDCODED_FALLBACK_POS
+end
 
 -- Full destroy + rebuild rather than just topping up Health. Reviving a dead
 -- Humanoid leaves broken joints + the equipped rifle frozen in the wrong pose;
@@ -695,19 +733,21 @@ rebuildBot = function(oldBot: Model)
 		local sp = spawns[math.random(#spawns)]
 		targetPos = sp.Position + Vector3.new(0, 5, 0)
 	else
+		local fb = resolveFallbackSpawnPos()
 		warn(string.format(
 			"[DeathmatchBot] rebuildBot: no arena spawns for %s — using fallback %s",
-			name, tostring(FALLBACK_SPAWN_POS)
+			name, tostring(fb)
 		))
-		targetPos = FALLBACK_SPAWN_POS
+		targetPos = fb
 	end
 	-- Reject any spawn that would itself drop the bot into the void.
 	if targetPos.Y < VOID_Y_THRESHOLD then
+		local fb = resolveFallbackSpawnPos()
 		warn(string.format(
-			"[DeathmatchBot] rebuildBot: chosen spawn pos %s is below void threshold; using fallback",
-			tostring(targetPos)
+			"[DeathmatchBot] rebuildBot: chosen spawn pos %s is below void threshold; using fallback %s",
+			tostring(targetPos), tostring(fb)
 		))
-		targetPos = FALLBACK_SPAWN_POS
+		targetPos = fb
 	end
 	local targetCF = CFrame.new(targetPos)
 
@@ -740,6 +780,8 @@ rebuildBot = function(oldBot: Model)
 	-- Verify the new model actually exists in Workspace at a sane Y BEFORE
 	-- registering it in `bots`. If it's somehow already below the void
 	-- threshold, log loudly and give up instead of feeding the watchdog loop.
+	-- Position check happens BEFORE UnanchorRig so physics jitter can't
+	-- shift the HRP between PivotTo and the read.
 	local newHrp = bot:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not newHrp or not bot.Parent or newHrp.Position.Y < VOID_Y_THRESHOLD then
 		warn(string.format(
@@ -757,6 +799,17 @@ rebuildBot = function(oldBot: Model)
 		if bot.Parent then bot:Destroy() end
 		return
 	end
+
+	-- CRITICAL: BotModel.Build returns the rig with all body Parts ANCHORED
+	-- (so they don't fall during Parent→PivotTo). Without this call the
+	-- rebuilt bot would stay frozen at the spawn — Humanoid:MoveTo can't
+	-- drive anchored parts, so the bot wouldn't walk, dodge, or fall to
+	-- the floor. spawnBotsToFill's placeBotAt() helper does this too;
+	-- previously the rebuild path forgot, which is what the user saw as
+	-- "bot mati terus respawnnya ga ada di arena" — the rebuilt rig was
+	-- pinned in place (or below the floor if PivotTo y was off) instead
+	-- of behaving like a live combatant.
+	BotModel.UnanchorRig(bot)
 
 	-- Validated — safe to register the new model.
 	table.insert(bots, bot)
@@ -1257,6 +1310,10 @@ local function relocateBotsNearPlayer(char: Model)
 	if not SPAWN_NEAR_PLAYER then return end
 	if MatchStateService.GetState().state ~= MatchState.States.MATCH then return end
 	if MatchStateService.GetGamemode() ~= "deathmatch" then return end
+	-- Skip Practice mode players — they're in an isolated training room and
+	-- should only see static dummies (TrainingService), not active DM bots.
+	local player = Players:GetPlayerFromCharacter(char)
+	if player and TrainingService.IsTraining(player.UserId) then return end
 	-- Wait a beat for both physics + ArenaService teleport. CharacterAdded
 	-- fires the moment the character is parented to Workspace, BEFORE
 	-- ArenaService:Teleport runs, so without the wait we'd see the

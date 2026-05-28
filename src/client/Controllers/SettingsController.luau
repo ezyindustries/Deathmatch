@@ -551,7 +551,7 @@ toggleLabel.Font = Enum.Font.GothamBold
 toggleLabel.TextSize = 14
 toggleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 toggleLabel.TextXAlignment = Enum.TextXAlignment.Left
-toggleLabel.Text = "Killstreak Announcements"
+toggleLabel.Text = "Streak Announcements"
 toggleLabel.Parent = toggleRow
 
 local toggleBtn = Instance.new("TextButton")
